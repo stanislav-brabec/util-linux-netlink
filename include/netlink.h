@@ -6,9 +6,15 @@
  * This file may be redistributed under the terms of the
  * GNU Lesser General Public License.
  *
- * This set of functions processes netlink messages from kernel and creates
- * and/or maintains a linked list of requested type. Using callback fuctions
- * and custom data, it could be used for arbitraty purpose.
+ * This set of functions processes netlink messages from the kernel socket,
+ * joins message parts into a single structure and calls callback.
+ *
+ * To do something useful, callback for a selected message type has to be
+ * defined. Using callback fuctions and custom data, it could be used for
+ * arbitraty purpose.
+ *
+ * The code is incomplete. More could be implemented as needed by its use
+ * cases.
  *
  */
  
@@ -17,12 +23,12 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <net/if.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include "list.h"
 
 typedef struct ul_netlink_data ul_netlink_data;
-typedef struct ul_netlink_callback_data ul_netlink_callback_data;
 
 /* Return codes */
 typedef enum ul_netlink_rc {
@@ -31,42 +37,69 @@ typedef enum ul_netlink_rc {
 	UL_NETLINK_DONE,	/* processing reached NLMSG_DONE (for
 				 * ul_netlink_dump_request() */
 	UL_NETLINK_WOULDBLOCK,	/* no data are ready (for asynchronous mode) */
-	UL_NETLINK_ABORT	/* immediate termination requested (by callback) */
+	//	UL_NETLINK_ABORT,	/* like UL_NETLINK_ERROR, but initiated by the callback */
+	/* callback specific */
+	UL_NETLINK_IFACES_MAX,	/* ADDR: Too many interfaces */
 } ul_netlink_rc;
 
 /* The callback of the netlink message header.
- * Return code: Normally returns UL_NETLINK_OK. In all other cases,
- *   ul_netlink_process() immediately exits with an error. A special return
- *   code UL_NETLINK_ABORT is reserved for intended aborting of further
- *   processing that does not mean an error.
+ * Return code: Normally returns UL_NETLINK_OK. In other cases,
+ *   ul_netlink_process() immediately exits with an error.
+ *   Special return codes:
+ *   UL_NETLINK_ABORT: aborting further processing that does not mean an error
+ *     (example: Message we were waiting for was found.)
+ * See <linux/netlink.h> nlmsghdr to see, what you can process here.
  */
-typedef ul_netlink_rc (*ul_netlink_callback)(ul_netlink_data *ulnetlink, struct nlmsghdr *nh, ul_netlink_callback_data *callbackdata);
+typedef struct ul_netlink_data ul_netlink_data;
 
-typedef struct ul_netlink_callback_data {
-	struct list_head list_item;
-	ul_netlink_callback call;		/* arbitrary callback for each message,
-						 * defined by the caller */
-	void *data;				/* arbitrary custom data stored by the caller */
-} ul_netlink_callback_data;
+typedef ul_netlink_rc (*ul_netlink_callback)(ul_netlink_data *ulnetlink);
+
+/* Structure for ADDR messages collects information from a single ifaddsmsg
+ * structure and all optional rtattr structures into a single structure
+ * containing all useful data. */
+typedef struct ul_netlink_addr {
+	uint8_t ifa_family;	/* values from ifaddrmsg */
+	uint8_t ifa_scope;
+	uint8_t ifa_index;
+	uint32_t ifa_flags;
+	void *ifa_address;	/* IFA_ADDRESS */
+	int ifa_address_len;
+	void *ifa_local;	/* IFA_LOCAL */
+	int ifa_local_len;
+	void *address;		/* IFA_LOCAL, if defined, otherwise
+				 * IFA_ADDRESS. This is what you want it most
+				 * cases */
+	int address_len;
+	uint32_t ifa_valid;	/* ifa_valid from IFA_CACHEINFO */
+	/* More can be implemented in future. */
+} ul_netlink_addr;
 
 typedef struct ul_netlink_data {
-	struct list_head callbacks;	/* First callback data */
+	/* "static" part of the structure, filled once and kept */ 
+	ul_netlink_callback callback_addr; /* Function to process ul_netlink_addr */
+	void *data_addr;		/* Arbitrary data of callback_addr */
 	int fd;				/* netlink socket FD */
+	/* volatile part of the structure, filled by the current message */
+	bool is_new;			/* Processing RTM_NEW* */
+	bool is_dump;			/* Dump in progress */
+	union {
+		/* ADDR */
+		ul_netlink_addr addr;
+		/* More can be implemented in future (e. g. LINK, ROUTE etc.). */
+	};
 } ul_netlink_data;
 
-/* Initialize ul_netlink_data */
+/* Initialize ul_netlink_data structure */
 void ul_netlink_init(ul_netlink_data *ulnetlink);
-
-/* Adds a callback to the chain of callbacks
- * ul_netlink_callback: Function to call for each message.
- * callbackdata: This implementation callback.__attribute__((__unused__))
- */
-void ul_netlink_callback_add(ul_netlink_data *ulnetlink, ul_netlink_callback_data *callbackdata);
 
 /* Open a netlink connection.
  * nl_groups: Applies for monitoring. In case of ul_netlink_dump_request(),
  *   use its argument to select one.
- */
+ *
+ * Close and open vs. initial open with parameters?
+ * If we use single open with parameters, we can get mixed output.
+ * If we use close/open, we get a small race window that could contain
+ * unprocessed events. */
 ul_netlink_rc ul_netlink_open(ul_netlink_data *ulnetlink, uint32_t nl_groups);
 
 /* Close a netlink connection. */
@@ -90,5 +123,34 @@ ul_netlink_rc ul_netlink_dump_request(ul_netlink_data *ulnetlink, uint16_t nlmsg
  *   processing one message.
  */
 ul_netlink_rc ul_netlink_process(ul_netlink_data *ulnetlink, bool asynchronous, bool wait_for_nlmsg_done);
+
+/* Duplicate ul_netlink_addr structure to a newly allocated memory */
+ul_netlink_addr *ul_netlink_addr_dup (ul_netlink_addr *addr);
+
+/* Deallocate ul_netlink_addr structure */
+void ul_netlink_addr_free (ul_netlink_addr *addr);
+
+/* TODO: use AC_C_INLINE */
+#ifdef __GNUC__
+#define _INLINE_ static __inline__
+#else                         /* For Watcom C */
+#define _INLINE_ static inline
+#endif
+
+_INLINE_ const char *ul_netlink_addr_indextoname(const ul_netlink_addr *addr){
+	static char ifname[IF_NAMESIZE];
+
+	return if_indextoname(addr->ifa_index, ifname);
+}
+
+/* Convert ul_netlink_addr to string.
+   addr: ul_netlink_addr structure
+   id: Which of 3 possible addresses should be converted?
+ * Returns static string, valid to next call.
+ */
+#define UL_NETLINK_ADDR_ADDRESS offsetof(ul_netlink_addr, address)
+#define UL_NETLINK_ADDR_IFA_ADDRESS offsetof(ul_netlink_addr, ifa_address)
+#define UL_NETLINK_ADDR_IFA_LOCAL offsetof(ul_netlink_addr, ifa_local)
+const char *ul_netlink_addr_ntop (const ul_netlink_addr *addr, int id);
 
 #endif /* UTIL_LINUX_NETLINK */
