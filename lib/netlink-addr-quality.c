@@ -41,6 +41,30 @@ static inline enum ip_quality_item_value evaluate_ip_quality(ul_netlink_addr *ul
 	return quality;
 }
 
+static ul_netlink_rc callback_addr(ul_netlink_data *ulnetlink) {
+	char *str;
+
+	printf("%s address:\n", (ulnetlink->is_new ? "Add" : "Delete"));
+	printf("  interface: %s\n", ul_netlink_addr_indextoname(&(ulnetlink->addr)));
+	if (ulnetlink->addr.ifa_family == AF_INET)
+		printf("  IPv4 %s\n",
+		       ul_netlink_addr_ntop(&(ulnetlink->addr), UL_NETLINK_ADDR_ADDRESS));
+	else
+	/* if (ulnetlink->addr.ifa_family == AF_INET) */
+		printf("  IPv6 %s\n",
+		       ul_netlink_addr_ntop(&(ulnetlink->addr), UL_NETLINK_ADDR_ADDRESS));
+	switch (ulnetlink->addr.ifa_scope) {
+	case RT_SCOPE_UNIVERSE:	str = "global"; break;
+	case RT_SCOPE_SITE:	str = "site"; break;
+	case RT_SCOPE_LINK:	str = "link"; break;
+	case RT_SCOPE_NOWHERE:	str = "nowhere"; break;
+	default:		str = "other"; break;
+	}
+	printf("  scope: %s\n", str);
+	printf("  valid: %d\n", ulnetlink->addr.ifa_valid);
+	return UL_NETLINK_OK;
+}
+
 /* Netlink callback evaluating the address quality and building the list of
  * interface lists */
 static ul_netlink_rc callback_addr_quality(ul_netlink_data *ulnetlink) {
@@ -50,6 +74,8 @@ static ul_netlink_rc callback_addr_quality(ul_netlink_data *ulnetlink) {
 	struct iface_quality_item *ifaceq = NULL;
 	struct ip_quality_item *ipq = NULL;
 
+	callback_addr(ulnetlink);
+
 	/* Search for interface in ifaces_list */
 	uladdrq->ifaces_count = 0;
 
@@ -58,8 +84,8 @@ static ul_netlink_rc callback_addr_quality(ul_netlink_data *ulnetlink) {
 	list_for_each(li, &(uladdrq->ifaces_list)) {
 		struct iface_quality_item *ifaceqq;
 		ifaceqq = list_entry(li, struct iface_quality_item, entry);
-			printf("  ifaceq->ifa_index %d\n", ifaceq->ifa_index);
-		if (ifaceq->ifa_index == ulnetlink->addr.ifa_index) {
+			printf("  ifaceqq->ifa_index %d\n", ifaceqq->ifa_index);
+		if (ifaceqq->ifa_index == ulnetlink->addr.ifa_index) {
 			ifaceq = ifaceqq;
 			debug_net("+ interface found in the list\n");
 			break;
@@ -127,6 +153,7 @@ static ul_netlink_rc callback_addr_quality(ul_netlink_data *ulnetlink) {
 			ipq->addr = uladdr;
 		}
 		ipq->quality = evaluate_ip_quality(uladdr);
+		fprintf(dbf, "  quality: %d\n", ipq->quality);
 	} else {
 		debug_net("address removed\n");
 		/* Should not happen */
