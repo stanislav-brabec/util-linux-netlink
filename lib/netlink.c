@@ -19,11 +19,11 @@
 #include <netinet/in.h>
 #include "netlink.h"
 
-void ul_netlink_init(struct ul_netlink_data *ulnetlink) {
-	memset(ulnetlink, 0, sizeof(struct ul_netlink_data));
+void ul_nl_init(struct ul_nl_data *ulnetlink) {
+	memset(ulnetlink, 0, sizeof(struct ul_nl_data));
 }
 
-ul_netlink_rc ul_netlink_dump_request(struct ul_netlink_data *ulnetlink, uint16_t nlmsg_type) {
+ul_nl_rc ul_nl_dump_request(struct ul_nl_data *ulnetlink, uint16_t nlmsg_type) {
 	struct {
 		struct nlmsghdr nh;
 		struct rtgenmsg g;
@@ -37,17 +37,17 @@ ul_netlink_rc ul_netlink_dump_request(struct ul_netlink_data *ulnetlink, uint16_
 
 	ulnetlink->is_dump = true;
 	if (send(ulnetlink->fd, &req, req.nh.nlmsg_len, 0) == -1)
-		return UL_NETLINK_ERROR;
-	return UL_NETLINK_OK;
+		return UL_NL_ERROR;
+	return UL_NL_OK;
 }
 
-static ul_netlink_rc process_addr(struct ul_netlink_data *ulnetlink, struct nlmsghdr *nh)
+static ul_nl_rc process_addr(struct ul_nl_data *ulnetlink, struct nlmsghdr *nh)
 {
 	struct ifaddrmsg *ifaddr;
 	struct rtattr *attr;
 	int len;
 	bool has_local_address = false;
-	ul_netlink_rc ulrc = UL_NETLINK_OK;
+	ul_nl_rc ulrc = UL_NL_OK;
 
 	memset(&(ulnetlink->addr), 0, sizeof(ulnetlink->addr));
 
@@ -94,9 +94,9 @@ static ul_netlink_rc process_addr(struct ul_netlink_data *ulnetlink, struct nlms
 	return ulrc;
 }
 
-static ul_netlink_rc process_msg(struct ul_netlink_data *ulnetlink, struct nlmsghdr *nh)
+static ul_nl_rc process_msg(struct ul_nl_data *ulnetlink, struct nlmsghdr *nh)
 {
-	ul_netlink_rc ulrc = UL_NETLINK_OK;
+	ul_nl_rc ulrc = UL_NL_OK;
 
 	ulnetlink->is_new = false;
 	switch (nh->nlmsg_type) {
@@ -111,7 +111,7 @@ static ul_netlink_rc process_msg(struct ul_netlink_data *ulnetlink, struct nlmsg
 	return ulrc;
 }
 
-ul_netlink_rc ul_netlink_process(struct ul_netlink_data *ulnetlink, bool asynchronous, bool wait_for_nlmsg_done)
+ul_nl_rc ul_nl_process(struct ul_nl_data *ulnetlink, bool asynchronous, bool wait_for_nlmsg_done)
 {
 	char buf[4096];
 	struct sockaddr_nl snl;
@@ -136,11 +136,11 @@ ul_netlink_rc ul_netlink_process(struct ul_netlink_data *ulnetlink, bool asynchr
 		rc = recvmsg(ulnetlink->fd, &msg, (wait_for_nlmsg_done ? 0 : (asynchronous ? MSG_DONTWAIT : 0)));
 		if (rc < 0) {
 			if (errno == EWOULDBLOCK || errno == EAGAIN)
-				return UL_NETLINK_WOULDBLOCK;
+				return UL_NL_WOULDBLOCK;
 
 			/* Failure, just stop listening for changes */
 			ulnetlink->is_dump = false;
-			return UL_NETLINK_ERROR;
+			return UL_NL_ERROR;
 		}
 
 		for (nh = (struct nlmsghdr *)buf;
@@ -148,51 +148,51 @@ ul_netlink_rc ul_netlink_process(struct ul_netlink_data *ulnetlink, bool asynchr
 		     nh = NLMSG_NEXT(nh, rc)) {
 			if (nh->nlmsg_type == NLMSG_ERROR) {
 				ulnetlink->is_dump = false;
-				return UL_NETLINK_ERROR;
+				return UL_NL_ERROR;
 			}
 			if (nh->nlmsg_type == NLMSG_DONE) {
 				ulnetlink->is_dump = false;
-				return UL_NETLINK_DONE;
+				return UL_NL_DONE;
 			}
 
 			process_msg(ulnetlink, nh);
 		}
 		if (!wait_for_nlmsg_done) {
-			return UL_NETLINK_OK;
+			return UL_NL_OK;
 		}
 	}
 }
 
-ul_netlink_rc ul_netlink_open(struct ul_netlink_data *ulnetlink, uint32_t nl_groups)
+ul_nl_rc ul_nl_open(struct ul_nl_data *ulnetlink, uint32_t nl_groups)
 {
 	struct sockaddr_nl addr = { 0, };
 	int sock;
 
 	sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (sock < 0)
-		return UL_NETLINK_ERROR;
+		return UL_NL_ERROR;
 	addr.nl_family = AF_NETLINK;
 	addr.nl_pid = getpid();
 	addr.nl_groups = nl_groups;
 	if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 		close(sock);
-		return UL_NETLINK_ERROR;
+		return UL_NL_ERROR;
 	}
 	ulnetlink->fd = sock;
-	return UL_NETLINK_OK;
+	return UL_NL_OK;
 }
 	
-ul_netlink_rc ul_netlink_close(struct ul_netlink_data *ulnetlink) {
+ul_nl_rc ul_nl_close(struct ul_nl_data *ulnetlink) {
 	if (close(ulnetlink->fd) == 0)
-		return UL_NETLINK_OK;
-	return UL_NETLINK_ERROR;
+		return UL_NL_OK;
+	return UL_NL_ERROR;
 }
 
-struct ul_netlink_addr *ul_netlink_addr_dup (struct ul_netlink_addr *addr) {
-	struct ul_netlink_addr *newaddr;
-	newaddr = malloc(sizeof(struct ul_netlink_addr));
+struct ul_nl_addr *ul_nl_addr_dup (struct ul_nl_addr *addr) {
+	struct ul_nl_addr *newaddr;
+	newaddr = malloc(sizeof(struct ul_nl_addr));
 	if (!newaddr) goto error1;
-	memcpy(newaddr, addr, sizeof(struct ul_netlink_addr));
+	memcpy(newaddr, addr, sizeof(struct ul_nl_addr));
 	if (addr->ifa_address_len) {
 		newaddr->ifa_address = malloc(addr->ifa_address_len);
 		if (!newaddr->ifa_address)
@@ -218,13 +218,13 @@ error1:
 	return NULL;
 }
 
-void ul_netlink_addr_free (struct ul_netlink_addr *addr) {
+void ul_nl_addr_free (struct ul_nl_addr *addr) {
 	free(addr->ifa_address);
 	free(addr->ifa_local);
 	free(addr);
 }
 
-const char *ul_netlink_addr_ntop (const struct ul_netlink_addr *addr, int id) {
+const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int id) {
 	const void **ifa_addr = (const void **)((const char *)addr + id);
 	/* (INET6_ADDRSTRLEN-1) + (IF_NAMESIZE-1) + strlen("%") + 1 */
 	static char addr_str[INET6_ADDRSTRLEN+IF_NAMESIZE];
@@ -249,18 +249,18 @@ const char *ul_netlink_addr_ntop (const struct ul_netlink_addr *addr, int id) {
 #ifdef TEST_PROGRAM_NETLINK
 #include <stdio.h>
 
-static ul_netlink_rc callback_addr(struct ul_netlink_data *ulnetlink) {
+static ul_nl_rc callback_addr(struct ul_nl_data *ulnetlink) {
 	char *str;
 
 	printf("%s address:\n", (ulnetlink->is_new ? "Add" : "Delete"));
-	printf("  interface: %s\n", ul_netlink_addr_indextoname(&(ulnetlink->addr)));
+	printf("  interface: %s\n", ul_nl_addr_indextoname(&(ulnetlink->addr)));
 	if (ulnetlink->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
-		       ul_netlink_addr_ntop(&(ulnetlink->addr), UL_NETLINK_ADDR_ADDRESS));
+		       ul_nl_addr_ntop(&(ulnetlink->addr), UL_NL_ADDR_ADDRESS));
 	else
 	/* if (ulnetlink->addr.ifa_family == AF_INET) */
 		printf("  IPv6 %s\n",
-		       ul_netlink_addr_ntop(&(ulnetlink->addr), UL_NETLINK_ADDR_ADDRESS));
+		       ul_nl_addr_ntop(&(ulnetlink->addr), UL_NL_ADDR_ADDRESS));
 	switch (ulnetlink->addr.ifa_scope) {
 	case RT_SCOPE_UNIVERSE:	str = "global"; break;
 	case RT_SCOPE_SITE:	str = "site"; break;
@@ -270,44 +270,44 @@ static ul_netlink_rc callback_addr(struct ul_netlink_data *ulnetlink) {
 	}
 	printf("  scope: %s\n", str);
 	printf("  valid: %d\n", ulnetlink->addr.ifa_valid);
-	return UL_NETLINK_OK;
+	return UL_NL_OK;
 }
 
 int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unused__)))
 {
 	int rc = 1;
-	ul_netlink_rc ulrc;
-	struct ul_netlink_data ulnetlink;
+	ul_nl_rc ulrc;
+	struct ul_nl_data ulnetlink;
 
 	/* Prepare netlink. */
-	ul_netlink_init(&ulnetlink);
+	ul_nl_init(&ulnetlink);
 	ulnetlink.callback_addr = callback_addr;
 
 	/* Dump addresses */
-	if (ul_netlink_open(&ulnetlink, 0) != UL_NETLINK_OK)
+	if (ul_nl_open(&ulnetlink, 0) != UL_NL_OK)
 		return 1;
-	if (ul_netlink_dump_request(&ulnetlink, RTM_GETADDR) != UL_NETLINK_OK)
+	if (ul_nl_dump_request(&ulnetlink, RTM_GETADDR) != UL_NL_OK)
 		goto error;
-	if (ul_netlink_process(&ulnetlink, false, true) != UL_NETLINK_DONE)
+	if (ul_nl_process(&ulnetlink, false, true) != UL_NL_DONE)
 		goto error;
 	puts("RTM_GETADDR dump finished.");
 
-	/* Close and later open. See note in the ul_netlink_open() docs. */
-	if (ul_netlink_close(&ulnetlink) != UL_NETLINK_OK)
+	/* Close and later open. See note in the ul_nl_open() docs. */
+	if (ul_nl_close(&ulnetlink) != UL_NL_OK)
 		goto error;
 
 	/* Monitor further changes */
 	puts("Going to monitor mode.");
-	if (ul_netlink_open(&ulnetlink, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR) != UL_NETLINK_OK)
+	if (ul_nl_open(&ulnetlink, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR) != UL_NL_OK)
 		goto error;
-	/* In this example UL_NETLINK_ABORT never appears, as callback does
+	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */
-	ulrc = ul_netlink_process(&ulnetlink, false, true);
-//	if (ulrc == UL_NETLINK_OK || ulrc == UL_NETLINK_ABORT)
-	if (ulrc == UL_NETLINK_OK)
+	ulrc = ul_nl_process(&ulnetlink, false, true);
+//	if (ulrc == UL_NL_OK || ulrc == UL_NL_ABORT)
+	if (ulrc == UL_NL_OK)
 		rc = 0;
 error:
-	if (ul_netlink_close(&ulnetlink) !=  UL_NETLINK_OK)
+	if (ul_nl_close(&ulnetlink) !=  UL_NL_OK)
 		rc = 1;
 	return rc;
 }

@@ -15,9 +15,9 @@
 #include "netlink.h"
 
 /*
-struct ul_netlink_addr_quality {
-	ul_netlink_addr *addr;
-} ul_netlink_addr_quality;
+struct ul_nl_addr_quality {
+	ul_nl_addr *addr;
+} ul_nl_addr_quality;
 */
 
 /* Network address "quality". Higher means worse. */
@@ -30,23 +30,23 @@ enum ip_quality_item_value {
 	IP_QUALITY_BAD
 };
 
-/* Data structure in ul_netlink_data */
-struct ul_netlink_addr_quality_data {
-	ul_netlink_callback callback;	/* Function to process ul_netlink_addr_quality_data */
+/* Data structure in ul_nl_data */
+struct ul_nl_addr_quality_data {
+	ul_nl_callback callback;	/* Function to process ul_nl_addr_quality_data */
 	void *callback_data;		/* Arbitrary data for callback */
 	struct list_head ifaces_list;	/* The intefaces list */
 	int ifaces_count;		/* interface count */
 	bool ifaces_skip_dump;		/* Too many interfaces? */
 };
-/* Macro casting generic ul_netlink_data->data_addr to struct ul_netlink_addrquality_data */
-#define UL_NETLINK_QUALITY_DATA(ulnetlink) ((struct ul_netlink_addr_quality_data*)(ulnetlink->data_addr))
+/* Macro casting generic ul_nl_data->data_addr to struct ul_nl_addrquality_data */
+#define UL_NL_QUALITY_DATA(ulnetlink) ((struct ul_nl_addr_quality_data*)(ulnetlink->data_addr))
 
 /* List item for for a particular address contains information for IP quality
- * evaluation and a copy of generic ul_netlink_addr data */
+ * evaluation and a copy of generic ul_nl_addr data */
 struct ip_quality_item {
 	struct list_head entry;
 	enum ip_quality_item_value quality;
-	struct ul_netlink_addr *addr;
+	struct ul_nl_addr *addr;
 };
 
 /* List item for particular interface contains interface specific data and
@@ -61,8 +61,8 @@ struct iface_quality_item {
 	bool ifaces_list_change_6;
 };
 
-/* Initialize ul_netlink_data for use with netlink-addr-quality
+/* Initialize ul_nl_data for use with netlink-addr-quality
  * callback: Process the data after updating the tree. If NULL, it just
  *   updates the tree and everything has to be processed outside.
  */
-ul_netlink_rc ul_netlink_addr_quality_init(struct ul_netlink_data *ulnetlink, ul_netlink_callback callback, void *data);
+ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *ulnetlink, ul_nl_callback callback, void *data);
