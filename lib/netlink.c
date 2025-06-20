@@ -18,6 +18,29 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include "netlink.h"
+#include "debug.h"
+
+/*
+ * Debug stuff (based on include/debug.h)
+ */
+static UL_DEBUG_DEFINE_MASK(netlink);
+UL_DEBUG_DEFINE_MASKNAMES(netlink) = UL_DEBUG_EMPTY_MASKNAMES;
+
+#define NETLINK_DEBUG_INIT	(1 << 1)
+#define NETLINK_DEBUG_MSG	(1 << 2)
+
+#define DBG(m, x)       __UL_DBG(netlink, NETLINK_DEBUG_, m, x)
+#define ON_DBG(m, x)    __UL_DBG_CALL(netlink, NETLINK_DEBUG_, m, x)
+
+#define UL_DEBUG_CURRENT_MASK	UL_DEBUG_MASK(netlink)
+#include "debugobj.h"
+
+static void netlink_init_debug(void)
+{
+	if (netlink_debug_mask)
+		return;
+	__UL_INIT_DEBUG_FROM_ENV(netlink, NETLINK_DEBUG_, 0, NETLINK_DEBUG);
+}
 
 void ul_nl_init(struct ul_nl_data *nl) {
 	memset(nl, 0, sizeof(struct ul_nl_data));
