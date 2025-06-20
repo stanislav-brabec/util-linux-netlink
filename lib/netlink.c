@@ -88,9 +88,7 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 			break;
 		}
 	}
-	/* Callback */
-	if (nl->callback_addr)
-		ulrc = (*(nl->callback_addr))(nl);
+	ulrc = (*(nl->callback_addr))(nl);
 	return ulrc;
 }
 
@@ -104,8 +102,10 @@ static ul_nl_rc process_msg(struct ul_nl_data *nl, struct nlmsghdr *nh)
 		nl->is_new = true;
 		/* fallthrough */
 	case RTM_DELADDR:
-		ulrc = process_addr(nl, nh);
-		break;
+	/* Optimization: If callback_addr is not set, do not process addr */
+	  if (nl->callback_addr)
+		  ulrc = process_addr(nl, nh);
+	  break;
 	/* More can be implemented in future (e. g. RTM_NEWLINK, RTM_DELLINK etc.). */
 	}
 	return ulrc;
