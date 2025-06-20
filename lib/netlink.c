@@ -19,11 +19,11 @@
 #include <netinet/in.h>
 #include "netlink.h"
 
-void ul_nl_init(struct ul_nl_data *ulnetlink) {
-	memset(ulnetlink, 0, sizeof(struct ul_nl_data));
+void ul_nl_init(struct ul_nl_data *nl) {
+	memset(nl, 0, sizeof(struct ul_nl_data));
 }
 
-ul_nl_rc ul_nl_dump_request(struct ul_nl_data *ulnetlink, uint16_t nlmsg_type) {
+ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type) {
 	struct {
 		struct nlmsghdr nh;
 		struct rtgenmsg g;
@@ -35,13 +35,13 @@ ul_nl_rc ul_nl_dump_request(struct ul_nl_data *ulnetlink, uint16_t nlmsg_type) {
 	req.nh.nlmsg_type = nlmsg_type;
 	req.g.rtgen_family = AF_NETLINK;
 
-	ulnetlink->is_dump = true;
-	if (send(ulnetlink->fd, &req, req.nh.nlmsg_len, 0) == -1)
+	nl->is_dump = true;
+	if (send(nl->fd, &req, req.nh.nlmsg_len, 0) == -1)
 		return UL_NL_ERROR;
 	return UL_NL_OK;
 }
 
-static ul_nl_rc process_addr(struct ul_nl_data *ulnetlink, struct nlmsghdr *nh)
+static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 {
 	struct ifaddrmsg *ifaddr;
 	struct rtattr *attr;
@@ -49,15 +49,15 @@ static ul_nl_rc process_addr(struct ul_nl_data *ulnetlink, struct nlmsghdr *nh)
 	bool has_local_address = false;
 	ul_nl_rc ulrc = UL_NL_OK;
 
-	memset(&(ulnetlink->addr), 0, sizeof(ulnetlink->addr));
+	memset(&(nl->addr), 0, sizeof(nl->addr));
 
 	/* Process ifaddrmsg. */
 	ifaddr = NLMSG_DATA(nh);
 
-	ulnetlink->addr.ifa_family = ifaddr->ifa_family;
-	ulnetlink->addr.ifa_scope = ifaddr->ifa_scope;
-	ulnetlink->addr.ifa_index = ifaddr->ifa_index;
-	ulnetlink->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
+	nl->addr.ifa_family = ifaddr->ifa_family;
+	nl->addr.ifa_scope = ifaddr->ifa_scope;
+	nl->addr.ifa_index = ifaddr->ifa_index;
+	nl->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
 
 	/* Process rtattr. */
 	len = nh->nlmsg_len - NLMSG_LENGTH(sizeof(*ifaddr));
@@ -65,53 +65,53 @@ static ul_nl_rc process_addr(struct ul_nl_data *ulnetlink, struct nlmsghdr *nh)
 		/* Proces most common rta attributes */
 		switch (attr->rta_type) {
 		case IFA_ADDRESS:
-			ulnetlink->addr.ifa_address = RTA_DATA(attr);
-			ulnetlink->addr.ifa_address_len = RTA_PAYLOAD(attr);
+			nl->addr.ifa_address = RTA_DATA(attr);
+			nl->addr.ifa_address_len = RTA_PAYLOAD(attr);
 			if (!has_local_address) {
-				ulnetlink->addr.address = RTA_DATA(attr);
-				ulnetlink->addr.address_len = RTA_PAYLOAD(attr);
+				nl->addr.address = RTA_DATA(attr);
+				nl->addr.address_len = RTA_PAYLOAD(attr);
 			}
 			break;
 		case IFA_LOCAL:
 			/* Point to Point interface listens has local address
 			 * and listens there */
 			has_local_address = true;
-			ulnetlink->addr.ifa_local = ulnetlink->addr.address = RTA_DATA(attr);
-			ulnetlink->addr.ifa_local_len = ulnetlink->addr.address_len = RTA_PAYLOAD(attr);
+			nl->addr.ifa_local = nl->addr.address = RTA_DATA(attr);
+			nl->addr.ifa_local_len = nl->addr.address_len = RTA_PAYLOAD(attr);
 			break;
 		case IFA_CACHEINFO:
 			struct ifa_cacheinfo *ci = (struct ifa_cacheinfo *)RTA_DATA(attr);
-			ulnetlink->addr.ifa_valid = ci->ifa_valid;
+			nl->addr.ifa_valid = ci->ifa_valid;
 			break;
 		case IFA_FLAGS:
-			ulnetlink->addr.ifa_flags = *(uint32_t *)(RTA_DATA(attr));
+			nl->addr.ifa_flags = *(uint32_t *)(RTA_DATA(attr));
 			break;
 		}
 	}
 	/* Callback */
-	if (ulnetlink->callback_addr)
-		ulrc = (*(ulnetlink->callback_addr))(ulnetlink);
+	if (nl->callback_addr)
+		ulrc = (*(nl->callback_addr))(nl);
 	return ulrc;
 }
 
-static ul_nl_rc process_msg(struct ul_nl_data *ulnetlink, struct nlmsghdr *nh)
+static ul_nl_rc process_msg(struct ul_nl_data *nl, struct nlmsghdr *nh)
 {
 	ul_nl_rc ulrc = UL_NL_OK;
 
-	ulnetlink->is_new = false;
+	nl->is_new = false;
 	switch (nh->nlmsg_type) {
 	case RTM_NEWADDR:
-		ulnetlink->is_new = true;
+		nl->is_new = true;
 		/* fallthrough */
 	case RTM_DELADDR:
-		ulrc = process_addr(ulnetlink, nh);
+		ulrc = process_addr(nl, nh);
 		break;
 	/* More can be implemented in future (e. g. RTM_NEWLINK, RTM_DELLINK etc.). */
 	}
 	return ulrc;
 }
 
-ul_nl_rc ul_nl_process(struct ul_nl_data *ulnetlink, bool asynchronous, bool wait_for_nlmsg_done)
+ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_nlmsg_done)
 {
 	char buf[4096];
 	struct sockaddr_nl snl;
@@ -133,13 +133,13 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *ulnetlink, bool asynchronous, bool wai
 	};
 
 	while (1) {
-		rc = recvmsg(ulnetlink->fd, &msg, (wait_for_nlmsg_done ? 0 : (asynchronous ? MSG_DONTWAIT : 0)));
+		rc = recvmsg(nl->fd, &msg, (wait_for_nlmsg_done ? 0 : (asynchronous ? MSG_DONTWAIT : 0)));
 		if (rc < 0) {
 			if (errno == EWOULDBLOCK || errno == EAGAIN)
 				return UL_NL_WOULDBLOCK;
 
 			/* Failure, just stop listening for changes */
-			ulnetlink->is_dump = false;
+			nl->is_dump = false;
 			return UL_NL_ERROR;
 		}
 
@@ -147,15 +147,15 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *ulnetlink, bool asynchronous, bool wai
 		     NLMSG_OK(nh, (unsigned int)rc);
 		     nh = NLMSG_NEXT(nh, rc)) {
 			if (nh->nlmsg_type == NLMSG_ERROR) {
-				ulnetlink->is_dump = false;
+				nl->is_dump = false;
 				return UL_NL_ERROR;
 			}
 			if (nh->nlmsg_type == NLMSG_DONE) {
-				ulnetlink->is_dump = false;
+				nl->is_dump = false;
 				return UL_NL_DONE;
 			}
 
-			process_msg(ulnetlink, nh);
+			process_msg(nl, nh);
 		}
 		if (!wait_for_nlmsg_done) {
 			return UL_NL_OK;
@@ -163,7 +163,7 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *ulnetlink, bool asynchronous, bool wai
 	}
 }
 
-ul_nl_rc ul_nl_open(struct ul_nl_data *ulnetlink, uint32_t nl_groups)
+ul_nl_rc ul_nl_open(struct ul_nl_data *nl, uint32_t nl_groups)
 {
 	struct sockaddr_nl addr = { 0, };
 	int sock;
@@ -178,12 +178,12 @@ ul_nl_rc ul_nl_open(struct ul_nl_data *ulnetlink, uint32_t nl_groups)
 		close(sock);
 		return UL_NL_ERROR;
 	}
-	ulnetlink->fd = sock;
+	nl->fd = sock;
 	return UL_NL_OK;
 }
 	
-ul_nl_rc ul_nl_close(struct ul_nl_data *ulnetlink) {
-	if (close(ulnetlink->fd) == 0)
+ul_nl_rc ul_nl_close(struct ul_nl_data *nl) {
+	if (close(nl->fd) == 0)
 		return UL_NL_OK;
 	return UL_NL_ERROR;
 }
@@ -249,19 +249,19 @@ const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int id) {
 #ifdef TEST_PROGRAM_NETLINK
 #include <stdio.h>
 
-static ul_nl_rc callback_addr(struct ul_nl_data *ulnetlink) {
+static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
-	printf("%s address:\n", (ulnetlink->is_new ? "Add" : "Delete"));
-	printf("  interface: %s\n", ul_nl_addr_indextoname(&(ulnetlink->addr)));
-	if (ulnetlink->addr.ifa_family == AF_INET)
+	printf("%s address:\n", (nl->is_new ? "Add" : "Delete"));
+	printf("  interface: %s\n", ul_nl_addr_indextoname(&(nl->addr)));
+	if (nl->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
-		       ul_nl_addr_ntop(&(ulnetlink->addr), UL_NL_ADDR_ADDRESS));
+		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
 	else
-	/* if (ulnetlink->addr.ifa_family == AF_INET) */
+	/* if (nl->addr.ifa_family == AF_INET) */
 		printf("  IPv6 %s\n",
-		       ul_nl_addr_ntop(&(ulnetlink->addr), UL_NL_ADDR_ADDRESS));
-	switch (ulnetlink->addr.ifa_scope) {
+		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
+	switch (nl->addr.ifa_scope) {
 	case RT_SCOPE_UNIVERSE:	str = "global"; break;
 	case RT_SCOPE_SITE:	str = "site"; break;
 	case RT_SCOPE_LINK:	str = "link"; break;
@@ -269,7 +269,7 @@ static ul_nl_rc callback_addr(struct ul_nl_data *ulnetlink) {
 	default:		str = "other"; break;
 	}
 	printf("  scope: %s\n", str);
-	printf("  valid: %d\n", ulnetlink->addr.ifa_valid);
+	printf("  valid: %d\n", nl->addr.ifa_valid);
 	return UL_NL_OK;
 }
 
@@ -277,37 +277,37 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 {
 	int rc = 1;
 	ul_nl_rc ulrc;
-	struct ul_nl_data ulnetlink;
+	struct ul_nl_data nl;
 
 	/* Prepare netlink. */
-	ul_nl_init(&ulnetlink);
-	ulnetlink.callback_addr = callback_addr;
+	ul_nl_init(&nl);
+	nl.callback_addr = callback_addr;
 
 	/* Dump addresses */
-	if (ul_nl_open(&ulnetlink, 0) != UL_NL_OK)
+	if (ul_nl_open(&nl, 0) != UL_NL_OK)
 		return 1;
-	if (ul_nl_dump_request(&ulnetlink, RTM_GETADDR) != UL_NL_OK)
+	if (ul_nl_dump_request(&nl, RTM_GETADDR) != UL_NL_OK)
 		goto error;
-	if (ul_nl_process(&ulnetlink, false, true) != UL_NL_DONE)
+	if (ul_nl_process(&nl, false, true) != UL_NL_DONE)
 		goto error;
 	puts("RTM_GETADDR dump finished.");
 
 	/* Close and later open. See note in the ul_nl_open() docs. */
-	if (ul_nl_close(&ulnetlink) != UL_NL_OK)
+	if (ul_nl_close(&nl) != UL_NL_OK)
 		goto error;
 
 	/* Monitor further changes */
 	puts("Going to monitor mode.");
-	if (ul_nl_open(&ulnetlink, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR) != UL_NL_OK)
+	if (ul_nl_open(&nl, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR) != UL_NL_OK)
 		goto error;
 	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */
-	ulrc = ul_nl_process(&ulnetlink, false, true);
+	ulrc = ul_nl_process(&nl, false, true);
 //	if (ulrc == UL_NL_OK || ulrc == UL_NL_ABORT)
 	if (ulrc == UL_NL_OK)
 		rc = 0;
 error:
-	if (ul_nl_close(&ulnetlink) !=  UL_NL_OK)
+	if (ul_nl_close(&nl) !=  UL_NL_OK)
 		rc = 1;
 	return rc;
 }

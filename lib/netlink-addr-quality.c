@@ -41,19 +41,19 @@ static inline enum ip_quality_item_value evaluate_ip_quality(struct ul_nl_addr *
 	return quality;
 }
 
-static ul_nl_rc callback_addr(struct ul_nl_data *ulnetlink) {
+static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
-	printf("%s address:\n", (ulnetlink->is_new ? "Add" : "Delete"));
-	printf("  interface: %s\n", ul_nl_addr_indextoname(&(ulnetlink->addr)));
-	if (ulnetlink->addr.ifa_family == AF_INET)
+	printf("%s address:\n", (nl->is_new ? "Add" : "Delete"));
+	printf("  interface: %s\n", ul_nl_addr_indextoname(&(nl->addr)));
+	if (nl->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
-		       ul_nl_addr_ntop(&(ulnetlink->addr), UL_NL_ADDR_ADDRESS));
+		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
 	else
-	/* if (ulnetlink->addr.ifa_family == AF_INET) */
+	/* if (nl->addr.ifa_family == AF_INET) */
 		printf("  IPv6 %s\n",
-		       ul_nl_addr_ntop(&(ulnetlink->addr), UL_NL_ADDR_ADDRESS));
-	switch (ulnetlink->addr.ifa_scope) {
+		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
+	switch (nl->addr.ifa_scope) {
 	case RT_SCOPE_UNIVERSE:	str = "global"; break;
 	case RT_SCOPE_SITE:	str = "site"; break;
 	case RT_SCOPE_LINK:	str = "link"; break;
@@ -61,31 +61,31 @@ static ul_nl_rc callback_addr(struct ul_nl_data *ulnetlink) {
 	default:		str = "other"; break;
 	}
 	printf("  scope: %s\n", str);
-	printf("  valid: %d\n", ulnetlink->addr.ifa_valid);
+	printf("  valid: %d\n", nl->addr.ifa_valid);
 	return UL_NL_OK;
 }
 
 /* Netlink callback evaluating the address quality and building the list of
  * interface lists */
-static ul_nl_rc callback_addr_quality(struct ul_nl_data *ulnetlink) {
-	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(ulnetlink);
+static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
+	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
 	struct list_head *li, *ipq_list;
 	bool *ifaces_list_change;
 	struct iface_quality_item *ifaceq = NULL;
 	struct ip_quality_item *ipq = NULL;
 
-	callback_addr(ulnetlink);
+	callback_addr(nl);
 
 	/* Search for interface in ifaces_list */
 	uladdrq->ifaces_count = 0;
 
 			debug_net(". callback_addr_quality()\n");
-			printf("  ulnetlink->addr.ifa_index %d\n", ulnetlink->addr.ifa_index);
+			printf("  nl->addr.ifa_index %d\n", nl->addr.ifa_index);
 	list_for_each(li, &(uladdrq->ifaces_list)) {
 		struct iface_quality_item *ifaceqq;
 		ifaceqq = list_entry(li, struct iface_quality_item, entry);
 			printf("  ifaceqq->ifa_index %d\n", ifaceqq->ifa_index);
-		if (ifaceqq->ifa_index == ulnetlink->addr.ifa_index) {
+		if (ifaceqq->ifa_index == nl->addr.ifa_index) {
 			ifaceq = ifaceqq;
 			debug_net("+ interface found in the list\n");
 			break;
@@ -94,7 +94,7 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *ulnetlink) {
 	}
 
 	if (ifaceq == NULL) {
-		if (ulnetlink->is_new) {
+		if (nl->is_new) {
 			if (uladdrq->ifaces_count >= max_ifaces) {
 				debug_net("+ too many interfaces\n");
 				uladdrq->ifaces_skip_dump = true;
@@ -105,7 +105,7 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *ulnetlink) {
 			ifaceq = malloc(sizeof(struct iface_quality_item));
 			INIT_LIST_HEAD(&(ifaceq->ip_quality_list_4));
 			INIT_LIST_HEAD(&(ifaceq->ip_quality_list_6));
-			ifaceq->ifa_index = ulnetlink->addr.ifa_index;
+			ifaceq->ifa_index = nl->addr.ifa_index;
 			printf("  index %d\n", ifaceq->ifa_index);
 			debug_net("+ allocating new interface\n");
 			list_add_tail(&(ifaceq->entry), &(uladdrq->ifaces_list));
@@ -115,32 +115,32 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *ulnetlink) {
 			return UL_NL_ERROR;
 		}
 	}
-	if (ulnetlink->addr.ifa_family == AF_INET) {
+	if (nl->addr.ifa_family == AF_INET) {
 		ipq_list = &(ifaceq->ip_quality_list_4);
 		ifaces_list_change = &(ifaceq->ifaces_list_change_4);
 	} else {
-	/* if (ulnetlink->addr.ifa_family == AF_INET6) */
+	/* if (nl->addr.ifa_family == AF_INET6) */
 		ipq_list = &(ifaceq->ip_quality_list_6);
 		ifaces_list_change = &(ifaceq->ifaces_list_change_6);
 	}
 
 	list_for_each(li, ipq_list) {
 		ipq = list_entry(li, struct ip_quality_item, entry);
-		if (ipq->addr->address_len == ulnetlink->addr.address_len)
-			if (memcmp(ipq->addr->address, ulnetlink->addr.address, ulnetlink->addr.address_len))
+		if (ipq->addr->address_len == nl->addr.address_len)
+			if (memcmp(ipq->addr->address, nl->addr.address, nl->addr.address_len))
 				break;
 	}
 	if (ipq == NULL) {
 		debug_net("- address not found in the list\n");
 	}
 
-	if (ulnetlink->is_new) {
+	if (nl->is_new) {
 		struct ul_nl_addr *uladdr;
 #ifdef DEBUGGING
-		fprintf(dbf, "network: + new address (address_len = %d)\n", ulnetlink->addr.address_len); fflush(dbf);
+		fprintf(dbf, "network: + new address (address_len = %d)\n", nl->addr.address_len); fflush(dbf);
 #endif
 		/* FIXME: can fail. What happens if it is NULL? */
-		uladdr = ul_nl_addr_dup(&(ulnetlink->addr));
+		uladdr = ul_nl_addr_dup(&(nl->addr));
 		if (ipq == NULL) {
 			debug_net("+ allocating new address\n");
 			ipq = malloc(sizeof(struct ip_quality_item));
@@ -173,18 +173,18 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *ulnetlink) {
 		}
 	}
 	if (uladdrq->callback)
-		return (*(uladdrq->callback))(ulnetlink);
+		return (*(uladdrq->callback))(nl);
 	return UL_NL_OK;
 }
 
 /* Initialize ul_nl_data for use with netlink-addr-quality */
-ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *ulnetlink, ul_nl_callback callback, void *data)
+ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
 {
-	if (!(ulnetlink->data_addr = malloc(sizeof(struct ul_nl_addr_quality_data))))
+	if (!(nl->data_addr = malloc(sizeof(struct ul_nl_addr_quality_data))))
 		return UL_NL_ERROR;
-	ulnetlink->callback_addr = callback_addr_quality;
+	nl->callback_addr = callback_addr_quality;
 
-	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(ulnetlink);
+	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
 	uladdrq->callback = callback;
 	uladdrq->callback_data = data;
 	uladdrq->ifaces_count = 0;
@@ -255,8 +255,8 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 }
 
 /* Requires callback_data being a FILE */
-static ul_nl_rc ul_nl_addr_quality_dump(struct ul_nl_data *ulnetlink) {
-	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(ulnetlink);
+static ul_nl_rc ul_nl_addr_quality_dump(struct ul_nl_data *nl) {
+	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
 	FILE *out;
 	struct list_head *li;
 	struct iface_quality_item *ifaceq;
@@ -294,39 +294,39 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 {
 	int rc = 1;
 	ul_nl_rc ulrc;
-	struct ul_nl_data ulnetlink;
+	struct ul_nl_data nl;
 	FILE *out = stdout;
 	dbf = stdout;
 	/* Prepare netlink. */
-	ul_nl_init(&ulnetlink);
-	if (ul_nl_addr_quality_init(&ulnetlink, ul_nl_addr_quality_dump, (void *)out) != UL_NL_OK)
+	ul_nl_init(&nl);
+	if (ul_nl_addr_quality_init(&nl, ul_nl_addr_quality_dump, (void *)out) != UL_NL_OK)
 		return 1;
 
 	/* Dump addresses */
-	if (ul_nl_open(&ulnetlink, 0) != UL_NL_OK)
+	if (ul_nl_open(&nl, 0) != UL_NL_OK)
 		return 1;
-	if (ul_nl_dump_request(&ulnetlink, RTM_GETADDR) != UL_NL_OK)
+	if (ul_nl_dump_request(&nl, RTM_GETADDR) != UL_NL_OK)
 		goto error;
-	if (ul_nl_process(&ulnetlink, false, true) != UL_NL_DONE)
+	if (ul_nl_process(&nl, false, true) != UL_NL_DONE)
 		goto error;
 	puts("RTM_GETADDR dump finished.");
 
 	/* Close and later open. See note in the ul_nl_open() docs. */
-	if (ul_nl_close(&ulnetlink) != UL_NL_OK)
+	if (ul_nl_close(&nl) != UL_NL_OK)
 		goto error;
 
 	/* Monitor further changes */
 	puts("Going to monitor mode.");
-	if (ul_nl_open(&ulnetlink, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR) != UL_NL_OK)
+	if (ul_nl_open(&nl, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR) != UL_NL_OK)
 		goto error;
 	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */
-	ulrc = ul_nl_process(&ulnetlink, false, true);
+	ulrc = ul_nl_process(&nl, false, true);
 //	if (ulrc == UL_NL_OK || ulrc == UL_NL_ABORT)
 	if (ulrc == UL_NL_OK)
 		rc = 0;
 error:
-	if (ul_nl_close(&ulnetlink) !=  UL_NL_OK)
+	if (ul_nl_close(&nl) !=  UL_NL_OK)
 		rc = 1;
 	return rc;
 }

@@ -50,7 +50,7 @@ typedef enum ul_nl_rc {
  */
 struct ul_nl_data;
 
-typedef ul_nl_rc (*ul_nl_callback)(struct ul_nl_data *ulnetlink);
+typedef ul_nl_rc (*ul_nl_callback)(struct ul_nl_data *nl);
 
 /* Structure for ADDR messages collects information from a single ifaddsmsg
  * structure and all optional rtattr structures into a single structure
@@ -88,7 +88,7 @@ struct ul_nl_data {
 };
 
 /* Initialize ul_nl_data structure */
-void ul_nl_init(struct ul_nl_data *ulnetlink);
+void ul_nl_init(struct ul_nl_data *nl);
 
 /* Open a netlink connection.
  * nl_groups: Applies for monitoring. In case of ul_nl_dump_request(),
@@ -98,19 +98,19 @@ void ul_nl_init(struct ul_nl_data *ulnetlink);
  * If we use single open with parameters, we can get mixed output.
  * If we use close/open, we get a small race window that could contain
  * unprocessed events. */
-ul_nl_rc ul_nl_open(struct ul_nl_data *ulnetlink, uint32_t nl_groups);
+ul_nl_rc ul_nl_open(struct ul_nl_data *nl, uint32_t nl_groups);
 
 /* Close a netlink connection. */
-ul_nl_rc ul_nl_close(struct ul_nl_data *ulnetlink);
+ul_nl_rc ul_nl_close(struct ul_nl_data *nl);
 
 /* Synchronously sends dump request of a selected nlmsg_type. It does not
  * perform any further actions. The result is returned through the callback
  * mechanism.
  * Under normal conditions, use
- * ul_nl_process(ulnetlink, false, true);
+ * ul_nl_process(nl, false, true);
  * for processing the reply
  */
-ul_nl_rc ul_nl_dump_request(struct ul_nl_data *ulnetlink, uint16_t nlmsg_type);
+ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
 
 /* Process netlink messages.
  * asynchronous: If true, return UL_NL_WOULDBLOCK immediately if there is
@@ -120,7 +120,7 @@ ul_nl_rc ul_nl_dump_request(struct ul_nl_data *ulnetlink, uint16_t nlmsg_type);
  *   otherwise it acts as an infinite loop. If false, it returns after
  *   processing one message.
  */
-ul_nl_rc ul_nl_process(struct ul_nl_data *ulnetlink, bool asynchronous, bool wait_for_nlmsg_done);
+ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_nlmsg_done);
 
 /* Duplicate ul_nl_addr structure to a newly allocated memory */
 struct ul_nl_addr *ul_nl_addr_dup (struct ul_nl_addr *addr);

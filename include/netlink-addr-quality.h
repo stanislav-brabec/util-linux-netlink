@@ -39,7 +39,7 @@ struct ul_nl_addr_quality_data {
 	bool ifaces_skip_dump;		/* Too many interfaces? */
 };
 /* Macro casting generic ul_nl_data->data_addr to struct ul_nl_addrquality_data */
-#define UL_NL_QUALITY_DATA(ulnetlink) ((struct ul_nl_addr_quality_data*)(ulnetlink->data_addr))
+#define UL_NL_QUALITY_DATA(nl) ((struct ul_nl_addr_quality_data*)(nl->data_addr))
 
 /* List item for for a particular address contains information for IP quality
  * evaluation and a copy of generic ul_nl_addr data */
@@ -65,4 +65,4 @@ struct iface_quality_item {
  * callback: Process the data after updating the tree. If NULL, it just
  *   updates the tree and everything has to be processed outside.
  */
-ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *ulnetlink, ul_nl_callback callback, void *data);
+ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data);
