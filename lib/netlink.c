@@ -35,7 +35,7 @@ ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type) {
 	req.nh.nlmsg_type = nlmsg_type;
 	req.g.rtgen_family = AF_NETLINK;
 
-	nl->is_dump = true;
+	nl->dumping = true;
 	if (send(nl->fd, &req, req.nh.nlmsg_len, 0) == -1)
 		return UL_NL_ERROR;
 	return UL_NL_OK;
@@ -140,7 +140,7 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 				return UL_NL_WOULDBLOCK;
 
 			/* Failure, just stop listening for changes */
-			nl->is_dump = false;
+			nl->dumping = false;
 			return UL_NL_ERROR;
 		}
 
@@ -148,11 +148,11 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 		     NLMSG_OK(nh, (unsigned int)rc);
 		     nh = NLMSG_NEXT(nh, rc)) {
 			if (nh->nlmsg_type == NLMSG_ERROR) {
-				nl->is_dump = false;
+				nl->dumping = false;
 				return UL_NL_ERROR;
 			}
 			if (nh->nlmsg_type == NLMSG_DONE) {
-				nl->is_dump = false;
+				nl->dumping = false;
 				return UL_NL_DONE;
 			}
 
