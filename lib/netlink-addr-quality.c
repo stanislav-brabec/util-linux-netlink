@@ -44,7 +44,7 @@ static inline enum ip_quality_item_value evaluate_ip_quality(struct ul_nl_addr *
 static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
-	printf("%s address:\n", (nl->is_new ? "Add" : "Delete"));
+	printf("%s address:\n", (nl->rtm_event ? "Add" : "Delete"));
 	printf("  interface: %s\n", ul_nl_addr_indextoname(&(nl->addr)));
 	if (nl->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
@@ -94,7 +94,7 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
 	}
 
 	if (ifaceq == NULL) {
-		if (nl->is_new) {
+		if (nl->rtm_event) {
 			if (uladdrq->ifaces_count >= max_ifaces) {
 				debug_net("+ too many interfaces\n");
 				uladdrq->ifaces_skip_dump = true;
@@ -134,7 +134,7 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
 		debug_net("- address not found in the list\n");
 	}
 
-	if (nl->is_new) {
+	if (nl->rtm_event) {
 		struct ul_nl_addr *uladdr;
 #ifdef DEBUGGING
 		fprintf(dbf, "network: + new address (address_len = %d)\n", nl->addr.address_len); fflush(dbf);

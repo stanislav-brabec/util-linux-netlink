@@ -72,13 +72,17 @@ struct ul_nl_addr {
 	/* More can be implemented in future. */
 };
 
+/* Values for rtm_event */
+#define UL_NL_RTM_DEL 0			/* processing RTM_DEL_* */
+#define UL_NL_RTM_NEW 1			/* processing RTM_NEW_* */
+
 struct ul_nl_data {
 	/* "static" part of the structure, filled once and kept */ 
-	ul_nl_callback callback_addr; /* Function to process ul_nl_addr */
+	ul_nl_callback callback_addr;	/* Function to process ul_nl_addr */
 	void *data_addr;		/* Arbitrary data of callback_addr */
 	int fd;				/* netlink socket FD */
 	/* volatile part of the structure, filled by the current message */
-	bool is_new;			/* Processing RTM_NEW* */
+	int rtm_event;			/* UL_NL_RTM_DEL or UL_NL_RTM_NEW */
 	bool is_dump;			/* Dump in progress */
 	union {
 		/* ADDR */

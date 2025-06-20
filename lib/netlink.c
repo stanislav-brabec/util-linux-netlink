@@ -41,6 +41,7 @@ ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type) {
 	return UL_NL_OK;
 }
 
+/* Expecting non-zero nl->callback_addr! */
 static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 {
 	struct ifaddrmsg *ifaddr;
@@ -96,13 +97,13 @@ static ul_nl_rc process_msg(struct ul_nl_data *nl, struct nlmsghdr *nh)
 {
 	ul_nl_rc ulrc = UL_NL_OK;
 
-	nl->is_new = false;
+	nl->rtm_event = UL_NL_RTM_DEL;
 	switch (nh->nlmsg_type) {
 	case RTM_NEWADDR:
-		nl->is_new = true;
+		nl->rtm_event = UL_NL_RTM_NEW;
 		/* fallthrough */
 	case RTM_DELADDR:
-	/* Optimization: If callback_addr is not set, do not process addr */
+	/* If callback_addr is not set, skip process_addr */
 	  if (nl->callback_addr)
 		  ulrc = process_addr(nl, nh);
 	  break;
@@ -252,7 +253,7 @@ const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int id) {
 static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
-	printf("%s address:\n", (nl->is_new ? "Add" : "Delete"));
+	printf("%s address:\n", ((nl->rtm_event ? "Add" : "Delete")));
 	printf("  interface: %s\n", ul_nl_addr_indextoname(&(nl->addr)));
 	if (nl->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
