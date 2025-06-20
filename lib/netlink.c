@@ -19,11 +19,11 @@
 #include <netinet/in.h>
 #include "netlink.h"
 
-void ul_netlink_init(ul_netlink_data *ulnetlink) {
-	memset(ulnetlink, 0, sizeof(ul_netlink_data));
+void ul_netlink_init(struct ul_netlink_data *ulnetlink) {
+	memset(ulnetlink, 0, sizeof(struct ul_netlink_data));
 }
 
-ul_netlink_rc ul_netlink_dump_request(ul_netlink_data *ulnetlink, uint16_t nlmsg_type) {
+ul_netlink_rc ul_netlink_dump_request(struct ul_netlink_data *ulnetlink, uint16_t nlmsg_type) {
 	struct {
 		struct nlmsghdr nh;
 		struct rtgenmsg g;
@@ -41,7 +41,7 @@ ul_netlink_rc ul_netlink_dump_request(ul_netlink_data *ulnetlink, uint16_t nlmsg
 	return UL_NETLINK_OK;
 }
 
-static ul_netlink_rc process_addr(ul_netlink_data *ulnetlink, struct nlmsghdr *nh)
+static ul_netlink_rc process_addr(struct ul_netlink_data *ulnetlink, struct nlmsghdr *nh)
 {
 	struct ifaddrmsg *ifaddr;
 	struct rtattr *attr;
@@ -94,7 +94,7 @@ static ul_netlink_rc process_addr(ul_netlink_data *ulnetlink, struct nlmsghdr *n
 	return ulrc;
 }
 
-static ul_netlink_rc process_msg(ul_netlink_data *ulnetlink, struct nlmsghdr *nh)
+static ul_netlink_rc process_msg(struct ul_netlink_data *ulnetlink, struct nlmsghdr *nh)
 {
 	ul_netlink_rc ulrc = UL_NETLINK_OK;
 
@@ -111,7 +111,7 @@ static ul_netlink_rc process_msg(ul_netlink_data *ulnetlink, struct nlmsghdr *nh
 	return ulrc;
 }
 
-ul_netlink_rc ul_netlink_process(ul_netlink_data *ulnetlink, bool asynchronous, bool wait_for_nlmsg_done)
+ul_netlink_rc ul_netlink_process(struct ul_netlink_data *ulnetlink, bool asynchronous, bool wait_for_nlmsg_done)
 {
 	char buf[4096];
 	struct sockaddr_nl snl;
@@ -163,7 +163,7 @@ ul_netlink_rc ul_netlink_process(ul_netlink_data *ulnetlink, bool asynchronous, 
 	}
 }
 
-ul_netlink_rc ul_netlink_open(ul_netlink_data *ulnetlink, uint32_t nl_groups)
+ul_netlink_rc ul_netlink_open(struct ul_netlink_data *ulnetlink, uint32_t nl_groups)
 {
 	struct sockaddr_nl addr = { 0, };
 	int sock;
@@ -182,17 +182,17 @@ ul_netlink_rc ul_netlink_open(ul_netlink_data *ulnetlink, uint32_t nl_groups)
 	return UL_NETLINK_OK;
 }
 	
-ul_netlink_rc ul_netlink_close(ul_netlink_data *ulnetlink) {
+ul_netlink_rc ul_netlink_close(struct ul_netlink_data *ulnetlink) {
 	if (close(ulnetlink->fd) == 0)
 		return UL_NETLINK_OK;
 	return UL_NETLINK_ERROR;
 }
 
-ul_netlink_addr *ul_netlink_addr_dup (ul_netlink_addr *addr) {
-	ul_netlink_addr *newaddr;
-	newaddr = malloc(sizeof(ul_netlink_addr));
+struct ul_netlink_addr *ul_netlink_addr_dup (struct ul_netlink_addr *addr) {
+	struct ul_netlink_addr *newaddr;
+	newaddr = malloc(sizeof(struct ul_netlink_addr));
 	if (!newaddr) goto error1;
-	memcpy(newaddr, addr, sizeof(ul_netlink_addr));
+	memcpy(newaddr, addr, sizeof(struct ul_netlink_addr));
 	if (addr->ifa_address_len) {
 		newaddr->ifa_address = malloc(addr->ifa_address_len);
 		if (!newaddr->ifa_address)
@@ -218,13 +218,13 @@ error1:
 	return NULL;
 }
 
-void ul_netlink_addr_free (ul_netlink_addr *addr) {
+void ul_netlink_addr_free (struct ul_netlink_addr *addr) {
 	free(addr->ifa_address);
 	free(addr->ifa_local);
 	free(addr);
 }
 
-const char *ul_netlink_addr_ntop (const ul_netlink_addr *addr, int id) {
+const char *ul_netlink_addr_ntop (const struct ul_netlink_addr *addr, int id) {
 	const void **ifa_addr = (const void **)((const char *)addr + id);
 	/* (INET6_ADDRSTRLEN-1) + (IF_NAMESIZE-1) + strlen("%") + 1 */
 	static char addr_str[INET6_ADDRSTRLEN+IF_NAMESIZE];
@@ -249,7 +249,7 @@ const char *ul_netlink_addr_ntop (const ul_netlink_addr *addr, int id) {
 #ifdef TEST_PROGRAM_NETLINK
 #include <stdio.h>
 
-static ul_netlink_rc callback_addr(ul_netlink_data *ulnetlink) {
+static ul_netlink_rc callback_addr(struct ul_netlink_data *ulnetlink) {
 	char *str;
 
 	printf("%s address:\n", (ulnetlink->is_new ? "Add" : "Delete"));
@@ -277,7 +277,7 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 {
 	int rc = 1;
 	ul_netlink_rc ulrc;
-	ul_netlink_data ulnetlink;
+	struct ul_netlink_data ulnetlink;
 
 	/* Prepare netlink. */
 	ul_netlink_init(&ulnetlink);

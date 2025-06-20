@@ -15,7 +15,7 @@
 #include "netlink.h"
 
 /*
-typedef struct ul_netlink_addr_quality {
+struct ul_netlink_addr_quality {
 	ul_netlink_addr *addr;
 } ul_netlink_addr_quality;
 */
@@ -46,7 +46,7 @@ struct ul_netlink_addr_quality_data {
 struct ip_quality_item {
 	struct list_head entry;
 	enum ip_quality_item_value quality;
-	ul_netlink_addr *addr;
+	struct ul_netlink_addr *addr;
 };
 
 /* List item for particular interface contains interface specific data and
@@ -65,4 +65,4 @@ struct iface_quality_item {
  * callback: Process the data after updating the tree. If NULL, it just
  *   updates the tree and everything has to be processed outside.
  */
-ul_netlink_rc ul_netlink_addr_quality_init(ul_netlink_data *ulnetlink, ul_netlink_callback callback, void *data);
+ul_netlink_rc ul_netlink_addr_quality_init(struct ul_netlink_data *ulnetlink, ul_netlink_callback callback, void *data);

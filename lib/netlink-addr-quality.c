@@ -18,7 +18,7 @@ FILE *dbf;
 #endif
 #define debug_net(s) debug("network: " s)
 
-static inline enum ip_quality_item_value evaluate_ip_quality(ul_netlink_addr *uladdr) {
+static inline enum ip_quality_item_value evaluate_ip_quality(struct ul_netlink_addr *uladdr) {
 	enum ip_quality_item_value quality;
 	switch (uladdr->ifa_scope) {
 	case RT_SCOPE_UNIVERSE:
@@ -41,7 +41,7 @@ static inline enum ip_quality_item_value evaluate_ip_quality(ul_netlink_addr *ul
 	return quality;
 }
 
-static ul_netlink_rc callback_addr(ul_netlink_data *ulnetlink) {
+static ul_netlink_rc callback_addr(struct ul_netlink_data *ulnetlink) {
 	char *str;
 
 	printf("%s address:\n", (ulnetlink->is_new ? "Add" : "Delete"));
@@ -67,7 +67,7 @@ static ul_netlink_rc callback_addr(ul_netlink_data *ulnetlink) {
 
 /* Netlink callback evaluating the address quality and building the list of
  * interface lists */
-static ul_netlink_rc callback_addr_quality(ul_netlink_data *ulnetlink) {
+static ul_netlink_rc callback_addr_quality(struct ul_netlink_data *ulnetlink) {
 	struct ul_netlink_addr_quality_data *uladdrq = UL_NETLINK_QUALITY_DATA(ulnetlink);
 	struct list_head *li, *ipq_list;
 	bool *ifaces_list_change;
@@ -135,7 +135,7 @@ static ul_netlink_rc callback_addr_quality(ul_netlink_data *ulnetlink) {
 	}
 
 	if (ulnetlink->is_new) {
-		ul_netlink_addr *uladdr;
+		struct ul_netlink_addr *uladdr;
 #ifdef DEBUGGING
 		fprintf(dbf, "network: + new address (address_len = %d)\n", ulnetlink->addr.address_len); fflush(dbf);
 #endif
@@ -178,7 +178,7 @@ static ul_netlink_rc callback_addr_quality(ul_netlink_data *ulnetlink) {
 }
 
 /* Initialize ul_netlink_data for use with netlink-addr-quality */
-ul_netlink_rc ul_netlink_addr_quality_init(ul_netlink_data *ulnetlink, ul_netlink_callback callback, void *data)
+ul_netlink_rc ul_netlink_addr_quality_init(struct ul_netlink_data *ulnetlink, ul_netlink_callback callback, void *data)
 {
 	if (!(ulnetlink->data_addr = malloc(sizeof(struct ul_netlink_addr_quality_data))))
 		return UL_NETLINK_ERROR;
@@ -255,7 +255,7 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 }
 
 /* Requires callback_data being a FILE */
-static ul_netlink_rc ul_netlink_addr_quality_dump(ul_netlink_data *ulnetlink) {
+static ul_netlink_rc ul_netlink_addr_quality_dump(struct ul_netlink_data *ulnetlink) {
 	struct ul_netlink_addr_quality_data *uladdrq = UL_NETLINK_QUALITY_DATA(ulnetlink);
 	FILE *out;
 	struct list_head *li;
@@ -294,7 +294,7 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 {
 	int rc = 1;
 	ul_netlink_rc ulrc;
-	ul_netlink_data ulnetlink;
+	struct ul_netlink_data ulnetlink;
 	FILE *out = stdout;
 	dbf = stdout;
 	/* Prepare netlink. */
