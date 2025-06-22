@@ -29,46 +29,51 @@
 #include "list.h"
 
 /* Return codes */
-typedef enum ul_nl_rc {
-	UL_NL_OK,		/* no error */
-	UL_NL_ERROR,	/* generic error */
-	UL_NL_DONE,	/* processing reached NLMSG_DONE (for
-				 * ul_nl_dump_request() */
-	UL_NL_WOULDBLOCK,	/* no data are ready (for asynchronous mode) */
-	//	UL_NL_ABORT,	/* like UL_NL_ERROR, but initiated by the callback */
-	/* callback specific */
-	UL_NL_IFACES_MAX,	/* ADDR: Too many interfaces */
-} ul_nl_rc;
+/* 0 means OK.
+ * Negative return codes indicate fatal errors.
+ */
+
+#define	UL_NL_WOULDBLOCK	1	/* no data are ready
+					 * (for asynchronous mode) */
+#define	UL_NL_DONE		2	/* processing reached NLMSG_DONE
+					 * (for ul_nl_dump_request() */
+#define	UL_NL_RETURN		3	/* callback initiated immediate
+					   return */
+#define	UL_NL_SOFT_ERROR	4	/* soft error, inicating a race
+					 * condition or message relating to
+					 * events before program start); could
+					 * be optionally ignored */
+
+struct ul_nl_data;
 
 /* The callback of the netlink message header.
  * Return code: Normally returns UL_NL_OK. In other cases,
  *   ul_nl_process() immediately exits with an error.
  *   Special return codes:
- *   UL_NL_ABORT: aborting further processing that does not mean an error
- *     (example: Message we were waiting for was found.)
+ *   UL_NL_RETURN: stopping further processing that does not mean an error
+ *     (example: There was found interface or IP we were waiting for.)
  * See <linux/netlink.h> nlmsghdr to see, what you can process here.
  */
-struct ul_nl_data;
-
-typedef ul_nl_rc (*ul_nl_callback)(struct ul_nl_data *nl);
+typedef int (*ul_nl_callback)(struct ul_nl_data *nl);
 
 /* Structure for ADDR messages collects information from a single ifaddsmsg
  * structure and all optional rtattr structures into a single structure
  * containing all useful data. */
 struct ul_nl_addr {
-	uint8_t ifa_family;	/* values from ifaddrmsg */
+/* values from ifaddrmsg or rtattr */
+	uint8_t ifa_family;
 	uint8_t ifa_scope;
 	uint8_t ifa_index;
 	uint32_t ifa_flags;
 	void *ifa_address;	/* IFA_ADDRESS */
-	int ifa_address_len;
+	int ifa_address_len;	/* size of IFA_ADDRESS data */
 	void *ifa_local;	/* IFA_LOCAL */
-	int ifa_local_len;
+	int ifa_local_len;	/* size of IFA_LOCAL data */
 	char *ifname;		/* interface from ifa_index as string */
 	void *address;		/* IFA_LOCAL, if defined, otherwise
 				 * IFA_ADDRESS. This is what you want it most
 				 * cases */
-	int address_len;
+	int address_len;	/* size of address data */
 	uint32_t ifa_prefered;	/* ifa_prefered from IFA_CACHEINFO */
 	uint32_t ifa_valid;	/* ifa_valid from IFA_CACHEINFO */
 	/* More can be implemented in future. */
@@ -111,10 +116,10 @@ void ul_nl_init(struct ul_nl_data *nl);
  * If we use close/open, we get a race window that could contain unprocessed
  * events.
  */
-ul_nl_rc ul_nl_open(struct ul_nl_data *nl, uint32_t nl_groups);
+int ul_nl_open(struct ul_nl_data *nl, uint32_t nl_groups);
 
 /* Close a netlink connection. */
-ul_nl_rc ul_nl_close(struct ul_nl_data *nl);
+int ul_nl_close(struct ul_nl_data *nl);
 
 /* Synchronously sends dump request of a selected nlmsg_type. It does not
  * perform any further actions. The result is returned through the callback.
@@ -122,7 +127,7 @@ ul_nl_rc ul_nl_close(struct ul_nl_data *nl);
  * Under normal conditions, use ul_nl_process(nl, false, true); for processing
  * the reply
  */
-ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
+int ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
 
 /* Values for async */
 #define UL_NL_SYNC false		/* synchronous mode */
@@ -136,7 +141,7 @@ ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
  *   finishing a reply from ul_nl_dump_request(), otherwise it acts as an
  *   infinite loop. If false, it returns after processing one message.
  */
-ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool async, bool loop);
+int ul_nl_process(struct ul_nl_data *nl, bool async, bool loop);
 
 /* Duplicate ul_nl_addr structure to a newly allocated memory */
 struct ul_nl_addr *ul_nl_addr_dup (struct ul_nl_addr *addr);

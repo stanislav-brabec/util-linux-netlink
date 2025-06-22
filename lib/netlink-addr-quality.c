@@ -55,7 +55,7 @@ static inline enum ip_quality_item_value evaluate_ip_quality(struct ul_nl_addr *
 	return quality;
 }
 
-static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
+static int callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
 	printf("%s address:\n", (nl->rtm_event ? "Add" : "Delete"));
@@ -76,18 +76,19 @@ static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	}
 	printf("  scope: %s\n", str);
 	printf("  valid: %d\n", nl->addr.ifa_valid);
-	return UL_NL_OK;
+	return 0;
 }
 
 /* Netlink callback evaluating the address quality and building the list of
  * interface lists */
-static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
+static int callback_addr_quality(struct ul_nl_data *nl) {
 	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
 	struct list_head *li, *ipq_list;
 	bool *ifaces_list_change;
 	struct iface_quality_item *ifaceq = NULL;
 	struct ip_quality_item *ipq = NULL;
 
+	// FIXME: can fail
 	callback_addr(nl);
 
 	/* Search for interface in ifaces_list */
@@ -126,9 +127,9 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
 			debug_net("+ allocating new interface\n");
 			list_add_tail(&(ifaceq->entry), &(uladdrq->ifaces_list));
 		} else {
-			/* Should never happen */
+			/* Should never happen, should be soft error? FIXME */
 			debug_net("- interface not found\n");
-			return UL_NL_ERROR;
+			return UL_NL_SOFT_ERROR;
 		}
 	}
 	if (nl->addr.ifa_family == AF_INET) {
@@ -172,9 +173,9 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
 		fprintf(dbf, "  quality: %d\n", ipq->quality);
 	} else {
 		debug_net("address removed\n");
-		/* Should not happen */
+		/* Should not happen FIXME soft error?*/
 		if (ipq == NULL)
-			return UL_NL_ERROR;
+			return UL_NL_SOFT_ERROR;
 		/* Delist the address */
 		debug_net("- deleting address\n");
 		*ifaces_list_change = true;
@@ -191,14 +192,14 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
 	}
 	if (uladdrq->callback)
 		return (*(uladdrq->callback))(nl);
-	return UL_NL_OK;
+	return 0;
 }
 
 /* Initialize ul_nl_data for use with netlink-addr-quality */
-ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
+int ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
 {
 	if (!(nl->data_addr = malloc(sizeof(struct ul_nl_addr_quality_data))))
-		return UL_NL_ERROR;
+		return UL_NL_SOFT_ERROR;
 	nl->callback_addr = callback_addr_quality;
 
 	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
@@ -207,7 +208,7 @@ ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback,
 	uladdrq->ifaces_count = 0;
 	uladdrq->ifaces_skip_dump = false;
 	INIT_LIST_HEAD(&(uladdrq->ifaces_list));
-	return UL_NL_OK;
+	return 0;
 }
 
 /* Get best quality value from in the ip_quality_item list
@@ -272,12 +273,13 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 }
 
 /* Requires callback_data being a FILE */
-static ul_nl_rc ul_nl_addr_quality_dump(struct ul_nl_data *nl) {
+static int ul_nl_addr_quality_dump(struct ul_nl_data *nl) {
 	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
 	FILE *out;
 	struct list_head *li;
 	struct iface_quality_item *ifaceq;
 
+	// FIXME: can fail
 	out = (FILE *)uladdrq->callback_data;
 	fprintf(out, "======\n"); fflush(out);
 	list_for_each(li, &(uladdrq->ifaces_list)) {
@@ -295,7 +297,7 @@ static ul_nl_rc ul_nl_addr_quality_dump(struct ul_nl_data *nl) {
 		print_good_addresses(&(ifaceq->ip_quality_list_6), out);
 		fprintf(out, "\n");
 	}
-	return UL_NL_OK;
+	return 0;
 }
 
 
@@ -308,40 +310,42 @@ static ul_nl_rc ul_nl_addr_quality_dump(struct ul_nl_data *nl) {
 int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unused__)))
 {
 	int rc = 1;
-	ul_nl_rc ulrc;
+	int ulrc; /* FIXME: ulrc x rc */
 	struct ul_nl_data nl;
 	FILE *out = stdout;
 	dbf = stdout;
 	/* Prepare netlink. */
 	ul_nl_init(&nl);
-	if (ul_nl_addr_quality_init(&nl, ul_nl_addr_quality_dump, (void *)out) != UL_NL_OK)
-		return 1;
+	if ((ul_nl_addr_quality_init(&nl, ul_nl_addr_quality_dump, (void *)out)))
+		// FIXME: real rc
+		return -1;
 
 	/* Dump addresses */
-	if (ul_nl_open(&nl, 0) != UL_NL_OK)
-		return 1;
-	if (ul_nl_dump_request(&nl, RTM_GETADDR) != UL_NL_OK)
+	if (ul_nl_open(&nl, 0))
+		// FIXME: real rc
+		return -1;
+	if (ul_nl_dump_request(&nl, RTM_GETADDR))
 		goto error;
 	if (ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP) != UL_NL_DONE)
 		goto error;
 	puts("RTM_GETADDR dump finished.");
 
 	/* Close and later open. See note in the ul_nl_open() docs. */
-	if (ul_nl_close(&nl) != UL_NL_OK)
+	if (ul_nl_close(&nl))
 		goto error;
 
 	/* Monitor further changes */
 	puts("Going to monitor mode.");
-	if (ul_nl_open(&nl, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR) != UL_NL_OK)
+	if (ul_nl_open(&nl, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR))
 		goto error;
 	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */
 	ulrc = ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP);
 //	if (ulrc == UL_NL_OK || ulrc == UL_NL_ABORT)
-	if (ulrc == UL_NL_OK)
+	if (!ulrc)
 		rc = 0;
 error:
-	if (ul_nl_close(&nl) !=  UL_NL_OK)
+	if ((ul_nl_close(&nl)))
 		rc = 1;
 	return rc;
 }

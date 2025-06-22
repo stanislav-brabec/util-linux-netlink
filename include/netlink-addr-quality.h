@@ -14,6 +14,9 @@
 
 #include "netlink.h"
 
+/* Specific return code */
+#define	UL_NL_IFACES_MAX	 64	/* ADDR: Too many interfaces */
+
 /*
 struct ul_nl_addr_quality {
 	ul_nl_addr *addr;
@@ -66,4 +69,4 @@ struct iface_quality_item {
  * callback: Process the data after updating the tree. If NULL, it just
  *   updates the tree and everything has to be processed outside.
  */
-ul_nl_rc ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data);
+int ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data);
