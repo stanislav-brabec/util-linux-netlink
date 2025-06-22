@@ -29,7 +29,7 @@ UL_DEBUG_DEFINE_MASKNAMES(netlink) = UL_DEBUG_EMPTY_MASKNAMES;
 
 #define ULNETLINK_DEBUG_INIT	(1 << 1)
 #define ULNETLINK_DEBUG_NLMSG	(1 << 2)
-#define ULNETLINK_DEBUG_INFO	(1 << 2)
+#define ULNETLINK_DEBUG_ADDR	(1 << 3)
 
 #define DBG(m, x)       __UL_DBG(netlink, ULNETLINK_DEBUG_, m, x)
 #define ON_DBG(m, x)    __UL_DBG_CALL(netlink, ULNETLINK_DEBUG_, m, x)
@@ -68,7 +68,7 @@ ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type) {
 }
 
 #define DBG_CASE(x) case x: str = #x; break
-#define DBG_CASE_DEF8(x) default: snprintf(strx+2, 3, "%hhx", x); str = strx; break
+#define DBG_CASE_DEF8(x) default: snprintf(strx+2, 3, "%02hhx", x); str = strx; break
 static void dbg_addr(struct ul_nl_data *nl)
 {
 	char *str;
@@ -78,7 +78,7 @@ static void dbg_addr(struct ul_nl_data *nl)
 		DBG_CASE(AF_INET6);
 		DBG_CASE_DEF8(nl->addr.ifa_family);
 	}
-	DBG(NLMSG, ul_debug(" ifa_family: %s", str));
+	DBG(ADDR, ul_debug(" ifa_family: %s", str));
 	switch (nl->addr.ifa_scope) {
 		DBG_CASE(RT_SCOPE_UNIVERSE);
 		DBG_CASE(RT_SCOPE_SITE);
@@ -87,9 +87,9 @@ static void dbg_addr(struct ul_nl_data *nl)
 		DBG_CASE(RT_SCOPE_NOWHERE);
 		DBG_CASE_DEF8(nl->addr.ifa_scope);
 	}
-	DBG(NLMSG, ul_debug(" interface: %s (ifa_index %d)",
+	DBG(ADDR, ul_debug(" interface: %s (ifa_index %u)",
 			  nl->addr.iface, nl->addr.ifa_index));
-	DBG(NLMSG, ul_debug(" ifa_flags: 0x%x", nl->addr.ifa_flags));
+	DBG(ADDR, ul_debug(" ifa_flags: 0x%02x", nl->addr.ifa_flags));
 }
 
 /* Expecting non-zero nl->callback_addr! */
@@ -102,7 +102,7 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 	bool has_local_address = false;
 	ul_nl_rc ulrc = UL_NL_OK;
 
-	DBG(NLMSG, ul_debugobj(nh, "processing nlmsghdr"));
+	DBG(ADDR, ul_debugobj(nh, "processing nlmsghdr"));
 	memset(&(nl->addr), 0, sizeof(struct ul_nl_addr));
 
 	/* Process ifaddrmsg. */
@@ -118,13 +118,13 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 		/* TRANSLATORS: unknown network interface, maximum 15 (IF_NAMESIZE-1) bytes */
 		nl->addr.iface = _("unknown");
 	nl->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
-	ON_DBG(NLMSG, dbg_addr(nl));
+	ON_DBG(ADDR, dbg_addr(nl));
 
 	/* Process rtattr. */
 	len = nh->nlmsg_len - NLMSG_LENGTH(sizeof(*ifaddr));
 	for (attr = IFA_RTA(ifaddr); RTA_OK(attr, len); attr = RTA_NEXT(attr, len)) {
 		/* Proces most common rta attributes */
-		DBG(NLMSG, ul_debugobj(attr, "processing rtattr"));
+		DBG(ADDR, ul_debugobj(attr, "processing rtattr"));
 		switch (attr->rta_type) {
 		case IFA_ADDRESS:
 			nl->addr.ifa_address = RTA_DATA(attr);
@@ -133,8 +133,8 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 				nl->addr.address = RTA_DATA(attr);
 				nl->addr.address_len = RTA_PAYLOAD(attr);
 			}
-			DBG(NLMSG,
-			    ul_debug(" rtattr IFA_ADDRESS%s: %s",
+			DBG(ADDR,
+			    ul_debug(" IFA_ADDRESS%s: %s",
 				     (has_local_address ? "" :
 				      " (setting address)"),
 				     ul_nl_addr_ntop(&(nl->addr),
@@ -147,21 +147,25 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 			nl->addr.ifa_local = nl->addr.address = RTA_DATA(attr);
 			nl->addr.ifa_local_len =
 				nl->addr.address_len = RTA_PAYLOAD(attr);
-			DBG(NLMSG,
-			    ul_debug(" rtattr IFA_LOCAL (setting address): %s",
+			DBG(ADDR,
+			    ul_debug(" IFA_LOCAL (setting address): %s",
 				     ul_nl_addr_ntop(&(nl->addr),
 						     UL_NL_ADDR_IFA_LOCAL)));
 			break;
 		case IFA_CACHEINFO:
 			struct ifa_cacheinfo *ci = (struct ifa_cacheinfo *)RTA_DATA(attr);
 			nl->addr.ifa_valid = ci->ifa_valid;
-			DBG(NLMSG, ul_debug(" rtattr IFA_CACHEINFO: ifa_prefered = %d, ifa_valid = %d",
+			DBG(ADDR, ul_debug(" IFA_CACHEINFO: ifa_prefered = %u, ifa_valid = %u",
 					  nl->addr.ifa_prefered, nl->addr.ifa_valid));
 			break;
 		case IFA_FLAGS:
 			nl->addr.ifa_flags = *(uint32_t *)(RTA_DATA(attr));
-			DBG(NLMSG, ul_debug(" rtattr IFA_FLAGS: %x",
+			DBG(ADDR, ul_debug(" IFA_FLAGS: 0x%08x",
 					  nl->addr.ifa_flags));
+			break;
+		default:
+			DBG(ADDR, ul_debug(" rta_type = 0x%04x",
+					  attr->rta_type));
 			break;
 		}
 	}
@@ -180,10 +184,17 @@ static ul_nl_rc process_msg(struct ul_nl_data *nl, struct nlmsghdr *nh)
 		/* fallthrough */
 	case RTM_DELADDR:
 	/* If callback_addr is not set, skip process_addr */
-	  if (nl->callback_addr)
-		  ulrc = process_addr(nl, nh);
-	  break;
-	/* More can be implemented in future (e. g. RTM_NEWLINK, RTM_DELLINK etc.). */
+		DBG(NLMSG, ul_debugobj(nl, "%s",
+				       (nl->rtm_event == UL_NL_RTM_DEL ?
+					"RTM_DELADDR" : "RTM_NEWADDR")));
+		if (nl->callback_addr)
+			ulrc = process_addr(nl, nh);
+		break;
+	/* More can be implemented in future (RTM_NEWLINK, RTM_DELLINK etc.). */
+	default:
+		DBG(NLMSG, ul_debugobj(nl, "nlmsg_type = %hu", nh->nlmsg_type));
+		break;
+
 	}
 	return ulrc;
 }
@@ -210,14 +221,19 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 	};
 
 	while (1) {
+		DBG(NLMSG, ul_debugobj(nl, "waiting for message"));
 		rc = recvmsg(nl->fd, &msg, (wait_for_nlmsg_done ? 0 :
 					    (asynchronous ? MSG_DONTWAIT : 0)));
+		DBG(NLMSG, ul_debugobj(nl, "got message"));
 		if (rc < 0) {
-			if (errno == EWOULDBLOCK || errno == EAGAIN)
+			if (errno == EWOULDBLOCK || errno == EAGAIN) {
+				DBG(NLMSG,
+				    ul_debugobj(nl, "no data"));
 				return UL_NL_WOULDBLOCK;
-
+			}
 			/* Failure, just stop listening for changes */
 			nl->dumping = false;
+			DBG(NLMSG, ul_debugobj(nl, "error"));
 			return UL_NL_ERROR;
 		}
 
@@ -225,10 +241,13 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 		     NLMSG_OK(nh, (unsigned int)rc);
 		     nh = NLMSG_NEXT(nh, rc)) {
 			if (nh->nlmsg_type == NLMSG_ERROR) {
+				DBG(NLMSG, ul_debugobj(nl, "NLMSG_ERROR"));
 				nl->dumping = false;
 				return UL_NL_ERROR;
 			}
 			if (nh->nlmsg_type == NLMSG_DONE) {
+				DBG(NLMSG,
+				    ul_debugobj(nl, "NLMSG_DONE"));
 				nl->dumping = false;
 				return UL_NL_DONE;
 			}
@@ -238,6 +257,7 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 		if (!wait_for_nlmsg_done) {
 			return UL_NL_OK;
 		}
+		DBG(NLMSG, ul_debugobj(nl, "looping until NLMSG_DONE"));
 	}
 }
 
@@ -246,6 +266,7 @@ ul_nl_rc ul_nl_open(struct ul_nl_data *nl, uint32_t nl_groups)
 	struct sockaddr_nl addr = { 0, };
 	int sock;
 
+	DBG(NLMSG, ul_debugobj(nl, "opening socket"));
 	sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (sock < 0)
 		return UL_NL_ERROR;
@@ -261,6 +282,7 @@ ul_nl_rc ul_nl_open(struct ul_nl_data *nl, uint32_t nl_groups)
 }
 	
 ul_nl_rc ul_nl_close(struct ul_nl_data *nl) {
+	DBG(NLMSG, ul_debugobj(nl, "closing socket"));
 	if (close(nl->fd) == 0)
 		return UL_NL_OK;
 	return UL_NL_ERROR;
@@ -332,7 +354,7 @@ static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
 	printf("%s address:\n", ((nl->rtm_event ? "Add" : "Delete")));
-	printf("  interface: %s\n", ul_nl_addr_indextoname(&(nl->addr)));
+	printf("  interface: %s\n", nl->addr.iface);
 	if (nl->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
 		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
@@ -348,7 +370,10 @@ static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	default:		str = "other"; break;
 	}
 	printf("  scope: %s\n", str);
-	printf("  valid: %d\n", nl->addr.ifa_valid);
+	if (nl->addr.ifa_valid != (uint32_t)-1)
+		printf("  valid: %u\n", nl->addr.ifa_valid);
+	else
+		printf("  valid: forever\n");
 	return UL_NL_OK;
 }
 

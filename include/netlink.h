@@ -92,7 +92,7 @@ struct ul_nl_data {
 	union {
 		/* ADDR */
 		struct ul_nl_addr addr;
-		/* More can be implemented in future (e. g. LINK, ROUTE etc.). */
+		/* More can be implemented in future (LINK, ROUTE etc.). */
 	};
 };
 
@@ -104,20 +104,23 @@ void ul_nl_init(struct ul_nl_data *nl);
  *   use its argument to select one.
  *
  * Close and open vs. initial open with parameters?
- * If we use single open with parameters, we can get mixed output.
- * If we use close/open, we get a small race window that could contain
- * unprocessed events. */
+ *
+ * If we use single open with parameters, we can get mixed output due to race
+ * window between opening the socket and sending dump request.
+ *
+ * If we use close/open, we get a race window that could contain unprocessed
+ * events.
+ */
 ul_nl_rc ul_nl_open(struct ul_nl_data *nl, uint32_t nl_groups);
 
 /* Close a netlink connection. */
 ul_nl_rc ul_nl_close(struct ul_nl_data *nl);
 
 /* Synchronously sends dump request of a selected nlmsg_type. It does not
- * perform any further actions. The result is returned through the callback
- * mechanism.
- * Under normal conditions, use
- * ul_nl_process(nl, false, true);
- * for processing the reply
+ * perform any further actions. The result is returned through the callback.
+ *
+ * Under normal conditions, use ul_nl_process(nl, false, true); for processing
+ * the reply
  */
 ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
 
@@ -136,19 +139,6 @@ struct ul_nl_addr *ul_nl_addr_dup (struct ul_nl_addr *addr);
 
 /* Deallocate ul_nl_addr structure */
 void ul_nl_addr_free (struct ul_nl_addr *addr);
-
-/* TODO: use AC_C_INLINE */
-#ifdef __GNUC__
-#define _INLINE_ static __inline__
-#else                         /* For Watcom C */
-#define _INLINE_ static inline
-#endif
-
-_INLINE_ const char *ul_nl_addr_indextoname(const struct ul_nl_addr *addr){
-	static char ifname[IF_NAMESIZE];
-
-	return if_indextoname(addr->ifa_index, ifname);
-}
 
 /* Convert ul_nl_addr to string.
    addr: ul_nl_addr structure
