@@ -18,8 +18,8 @@
  *
  */
 
-#ifndef UTIL_LINUX_NETLINK
-#define UTIL_LINUX_NETLINK
+#ifndef UTIL_LINUX_NETLINK_H
+#define UTIL_LINUX_NETLINK_H
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -160,4 +160,4 @@ void ul_nl_addr_free (struct ul_nl_addr *addr);
 /* Warning: id must be one of above. No checks are performed */
 const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int addrid);
 
-#endif /* UTIL_LINUX_NETLINK */
+#endif /* UTIL_LINUX_NETLINK_H */
