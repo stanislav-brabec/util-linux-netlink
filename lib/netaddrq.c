@@ -56,8 +56,8 @@ static void netaddrq_init_debug(void)
 				 ULNETADDRQ_DEBUG);
 }
 
-static inline enum ip_quality_item_value evaluate_ip_quality(struct ul_nl_addr *uladdr) {
-	enum ip_quality_item_value quality;
+static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *uladdr) {
+	enum ul_netaddrq_ip_rating quality;
 	switch (uladdr->ifa_scope) {
 	case RT_SCOPE_UNIVERSE:
 		quality = IP_QUALITY_SCOPE_UNIVERSE;
@@ -105,12 +105,12 @@ static int callback_addr(struct ul_nl_data *nl) {
 
 /* Netlink callback evaluating the address quality and building the list of
  * interface lists */
-static int callback_addr_quality(struct ul_nl_data *nl) {
-	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
+static int callback_addrq(struct ul_nl_data *nl) {
+	struct ul_netaddrq_data *uladdrq = UL_NETADDRQ_DATA(nl);
 	struct list_head *li, *ipq_list;
 	bool *ifaces_list_change;
-	struct iface_quality_item *ifaceq = NULL;
-	struct ip_quality_item *ipq = NULL;
+	struct ul_netaddrq_iface *ifaceq = NULL;
+	struct ul_netaddrq_ip *ipq = NULL;
 
 	// FIXME: can fail
 	callback_addr(nl);
@@ -118,11 +118,11 @@ static int callback_addr_quality(struct ul_nl_data *nl) {
 	/* Search for interface in ifaces_list */
 	uladdrq->ifaces_count = 0;
 
-			debug_net(". callback_addr_quality()\n");
+			debug_net(". callback_addrq()\n");
 			printf("  nl->addr.ifa_index %d\n", nl->addr.ifa_index);
 	list_for_each(li, &(uladdrq->ifaces_list)) {
-		struct iface_quality_item *ifaceqq;
-		ifaceqq = list_entry(li, struct iface_quality_item, entry);
+		struct ul_netaddrq_iface *ifaceqq;
+		ifaceqq = list_entry(li, struct ul_netaddrq_iface, entry);
 			printf("  ifaceqq->ifa_index %d\n", ifaceqq->ifa_index);
 		if (ifaceqq->ifa_index == nl->addr.ifa_index) {
 			ifaceq = ifaceqq;
@@ -141,7 +141,7 @@ static int callback_addr_quality(struct ul_nl_data *nl) {
 			}
 			debug_net("+ allocating new interface\n");
 			/* FIXME: can fail */
-			ifaceq = malloc(sizeof(struct iface_quality_item));
+			ifaceq = malloc(sizeof(struct ul_netaddrq_iface));
 			INIT_LIST_HEAD(&(ifaceq->ip_quality_list_4));
 			INIT_LIST_HEAD(&(ifaceq->ip_quality_list_6));
 			ifaceq->ifa_index = nl->addr.ifa_index;
@@ -166,7 +166,7 @@ static int callback_addr_quality(struct ul_nl_data *nl) {
 	}
 
 	list_for_each(li, ipq_list) {
-		ipq = list_entry(li, struct ip_quality_item, entry);
+		ipq = list_entry(li, struct ul_netaddrq_ip, entry);
 		if (ipq->addr->address_len == nl->addr.address_len)
 			if (memcmp(ipq->addr->address, nl->addr.address, nl->addr.address_len))
 				break;
@@ -184,7 +184,7 @@ static int callback_addr_quality(struct ul_nl_data *nl) {
 		uladdr = ul_nl_addr_dup(&(nl->addr));
 		if (ipq == NULL) {
 			debug_net("+ allocating new address\n");
-			ipq = malloc(sizeof(struct ip_quality_item));
+			ipq = malloc(sizeof(struct ul_netaddrq_ip));
 			ipq->addr = uladdr;
 			list_add_tail(&(ipq->entry), ipq_list);
 			*ifaces_list_change = true;
@@ -220,13 +220,13 @@ static int callback_addr_quality(struct ul_nl_data *nl) {
 }
 
 /* Initialize ul_nl_data for use with netlink-addr-quality */
-int ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
+int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
 {
-	if (!(nl->data_addr = malloc(sizeof(struct ul_nl_addr_quality_data))))
+	if (!(nl->data_addr = malloc(sizeof(struct ul_netaddrq_data))))
 		return UL_NL_SOFT_ERROR;
-	nl->callback_addr = callback_addr_quality;
+	nl->callback_addr = callback_addrq;
 
-	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
+	struct ul_netaddrq_data *uladdrq = UL_NETADDRQ_DATA(nl);
 	uladdrq->callback = callback;
 	uladdrq->callback_data = data;
 	uladdrq->ifaces_count = 0;
@@ -235,23 +235,23 @@ int ul_nl_addr_quality_init(struct ul_nl_data *nl, ul_nl_callback callback, void
 	return 0;
 }
 
-/* Get best quality value from in the ip_quality_item list
+/* Get best quality value from in the ul_netaddrq_ip list
  * ipq_list: List of IP addresses pf a particular interface and family
  * returns:
  *   best_valid: best ifa_valid validity time seen for the best quality
  *   best_valid_universe: best ifa_valid validity for IP_QUALITY_SCOPE_UNIVERSE quality
  *   return value: best quality seen */
-static enum ip_quality_item_value get_quality_limit(struct list_head *ipq_list, uint32_t *best_valid, uint32_t *best_valid_universe) {
+static enum ul_netaddrq_ip_rating get_quality_limit(struct list_head *ipq_list, uint32_t *best_valid, uint32_t *best_valid_universe) {
 	struct list_head *li;
-	struct ip_quality_item *ipq = NULL;
+	struct ul_netaddrq_ip *ipq = NULL;
 	uint32_t **best_valid_cur;
-	enum ip_quality_item_value qlimit, qcur;
+	enum ul_netaddrq_ip_rating qlimit, qcur;
 
 	qlimit = IP_QUALITY_BAD;
 	*best_valid = 0;
 	*best_valid_universe = 0;
 	list_for_each(li, ipq_list) {
-		ipq = list_entry(li, struct ip_quality_item, entry);
+		ipq = list_entry(li, struct ul_netaddrq_ip, entry);
 		qcur = ipq->quality;
 		/* We do not discriminate between site and global
 		 * addresses. Consider them as equally good and report
@@ -277,8 +277,8 @@ static enum ip_quality_item_value get_quality_limit(struct list_head *ipq_list, 
 static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 {
 	struct list_head *li;
-	struct ip_quality_item *ipq;
-	enum ip_quality_item_value qlimit;
+	struct ul_netaddrq_ip *ipq;
+	enum ul_netaddrq_ip_rating qlimit;
 	uint32_t best_valid, best_valid_universe;
 
 	qlimit = get_quality_limit(ipq_list, &best_valid, &best_valid_universe);
@@ -286,7 +286,7 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 	fprintf(out, " (quality limit %d)", qlimit); fflush(out);
 #endif
 	list_for_each(li, ipq_list) {
-		ipq = list_entry(li, struct ip_quality_item, entry);
+		ipq = list_entry(li, struct ul_netaddrq_ip, entry);
 
 		if (ipq->quality <= qlimit &&
 		    (ipq->quality == IP_QUALITY_SCOPE_UNIVERSE ?
@@ -297,17 +297,17 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 }
 
 /* Requires callback_data being a FILE */
-static int ul_nl_addr_quality_dump(struct ul_nl_data *nl) {
-	struct ul_nl_addr_quality_data *uladdrq = UL_NL_QUALITY_DATA(nl);
+static int ul_netaddrq_dump(struct ul_nl_data *nl) {
+	struct ul_netaddrq_data *uladdrq = UL_NETADDRQ_DATA(nl);
 	FILE *out;
 	struct list_head *li;
-	struct iface_quality_item *ifaceq;
+	struct ul_netaddrq_iface *ifaceq;
 
 	// FIXME: can fail
 	out = (FILE *)uladdrq->callback_data;
 	fprintf(out, "======\n"); fflush(out);
 	list_for_each(li, &(uladdrq->ifaces_list)) {
-		ifaceq = list_entry(li, struct iface_quality_item, entry);
+		ifaceq = list_entry(li, struct ul_netaddrq_iface, entry);
 
 		fprintf(out, "%d %s:\n", ifaceq->ifa_index, ifaceq->ifname);
 
@@ -340,7 +340,7 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 	dbf = stdout;
 	/* Prepare netlink. */
 	ul_nl_init(&nl);
-	if ((ul_nl_addr_quality_init(&nl, ul_nl_addr_quality_dump, (void *)out)))
+	if ((ul_netaddrq_init(&nl, ul_netaddrq_dump, (void *)out)))
 		// FIXME: real rc
 		return -1;
 
