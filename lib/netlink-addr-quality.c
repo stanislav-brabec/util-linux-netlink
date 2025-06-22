@@ -32,6 +32,29 @@ FILE *dbf;
 #endif
 #define debug_net(s) debug("network: " s)
 
+/*
+ * Debug stuff (based on include/debug.h)
+ */
+static UL_DEBUG_DEFINE_MASK(netaddrq);
+UL_DEBUG_DEFINE_MASKNAMES(netaddrq) = UL_DEBUG_EMPTY_MASKNAMES;
+
+#define ULNETADDRQ_DEBUG_INIT	(1 << 1)
+#define ULNETADDRQ_DEBUG_ADDR	(1 << 2)
+
+#define DBG(m, x)       __UL_DBG(neaddrq, ULNETADDRQ_DEBUG_, m, x)
+#define ON_DBG(m, x)    __UL_DBG_CALL(netlink, ULNETADDRQ_DEBUG_, m, x)
+
+#define UL_DEBUG_CURRENT_MASK	UL_DEBUG_MASK(netaddrq)
+#include "debugobj.h"
+
+static void netaddrq_init_debug(void)
+{
+	if (netaddrq_debug_mask)
+		return;
+	__UL_INIT_DEBUG_FROM_ENV(netaddrq, ULNETADDRQ_DEBUG_, 0,
+				 ULNETADDRQ_DEBUG);
+}
+
 static inline enum ip_quality_item_value evaluate_ip_quality(struct ul_nl_addr *uladdr) {
 	enum ip_quality_item_value quality;
 	switch (uladdr->ifa_scope) {
