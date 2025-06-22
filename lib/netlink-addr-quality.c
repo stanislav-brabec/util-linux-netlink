@@ -45,7 +45,7 @@ static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
 	printf("%s address:\n", (nl->rtm_event ? "Add" : "Delete"));
-	printf("  interface: %s\n", ul_nl_addr_indextoname(&(nl->addr)));
+	printf("  interface: %s\n", nl->addr.ifname);
 	if (nl->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
 		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
@@ -107,6 +107,8 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
 			INIT_LIST_HEAD(&(ifaceq->ip_quality_list_6));
 			ifaceq->ifa_index = nl->addr.ifa_index;
 			printf("  index %d\n", ifaceq->ifa_index);
+			/* FIXME: can fail */
+			ifaceq->ifname = strdup(nl->addr.ifname);
 			debug_net("+ allocating new interface\n");
 			list_add_tail(&(ifaceq->entry), &(uladdrq->ifaces_list));
 		} else {
@@ -169,6 +171,7 @@ static ul_nl_rc callback_addr_quality(struct ul_nl_data *nl) {
 			debug_net("- deleted last IP in the interface, removing interface\n");
 			list_del(&(ifaceq->entry));
 			uladdrq->ifaces_count--;
+			free(ifaceq->ifname);
 			free(ifaceq);
 		}
 	}
@@ -260,15 +263,13 @@ static ul_nl_rc ul_nl_addr_quality_dump(struct ul_nl_data *nl) {
 	FILE *out;
 	struct list_head *li;
 	struct iface_quality_item *ifaceq;
-// FIXME: Too useful. Should be filled as a part of basic structure.
-	static char ifname[IF_NAMESIZE];
 
 	out = (FILE *)uladdrq->callback_data;
 	fprintf(out, "======\n"); fflush(out);
 	list_for_each(li, &(uladdrq->ifaces_list)) {
 		ifaceq = list_entry(li, struct iface_quality_item, entry);
 
-		fprintf(out, "%d %s:\n", ifaceq->ifa_index, if_indextoname(ifaceq->ifa_index, ifname));
+		fprintf(out, "%d %s:\n", ifaceq->ifa_index, ifaceq->ifname);
 
 		/* IPv4 */
 		fprintf(out, "  IPv4"); fflush(out);
@@ -307,7 +308,7 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 		return 1;
 	if (ul_nl_dump_request(&nl, RTM_GETADDR) != UL_NL_OK)
 		goto error;
-	if (ul_nl_process(&nl, false, true) != UL_NL_DONE)
+	if (ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP) != UL_NL_DONE)
 		goto error;
 	puts("RTM_GETADDR dump finished.");
 
@@ -321,7 +322,7 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 		goto error;
 	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */
-	ulrc = ul_nl_process(&nl, false, true);
+	ulrc = ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP);
 //	if (ulrc == UL_NL_OK || ulrc == UL_NL_ABORT)
 	if (ulrc == UL_NL_OK)
 		rc = 0;

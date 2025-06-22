@@ -88,7 +88,7 @@ static void dbg_addr(struct ul_nl_data *nl)
 		DBG_CASE_DEF8(nl->addr.ifa_scope);
 	}
 	DBG(ADDR, ul_debug(" interface: %s (ifa_index %u)",
-			  nl->addr.iface, nl->addr.ifa_index));
+			  nl->addr.ifname, nl->addr.ifa_index));
 	DBG(ADDR, ul_debug(" ifa_flags: 0x%02x", nl->addr.ifa_flags));
 }
 
@@ -97,7 +97,7 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 {
 	struct ifaddrmsg *ifaddr;
 	struct rtattr *attr;
-	static char iface[IF_NAMESIZE];
+	static char ifname[IF_NAMESIZE];
 	int len;
 	bool has_local_address = false;
 	ul_nl_rc ulrc = UL_NL_OK;
@@ -111,12 +111,12 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 	nl->addr.ifa_family = ifaddr->ifa_family;
 	nl->addr.ifa_scope = ifaddr->ifa_scope;
 	nl->addr.ifa_index = ifaddr->ifa_index;
-	if ((if_indextoname(ifaddr->ifa_index, iface)))
-		nl->addr.iface = iface;
+	if ((if_indextoname(ifaddr->ifa_index, ifname)))
+		nl->addr.ifname = ifname;
 	else
 		/* There can be race, we do not return error here */
 		/* TRANSLATORS: unknown network interface, maximum 15 (IF_NAMESIZE-1) bytes */
-		nl->addr.iface = _("unknown");
+		nl->addr.ifname = _("unknown");
 	nl->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
 	ON_DBG(ADDR, dbg_addr(nl));
 
@@ -199,7 +199,7 @@ static ul_nl_rc process_msg(struct ul_nl_data *nl, struct nlmsghdr *nh)
 	return ulrc;
 }
 
-ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_nlmsg_done)
+ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool async, bool loop)
 {
 	char buf[4096];
 	struct sockaddr_nl snl;
@@ -222,8 +222,8 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 
 	while (1) {
 		DBG(NLMSG, ul_debugobj(nl, "waiting for message"));
-		rc = recvmsg(nl->fd, &msg, (wait_for_nlmsg_done ? 0 :
-					    (asynchronous ? MSG_DONTWAIT : 0)));
+		rc = recvmsg(nl->fd, &msg, (loop ? 0 :
+					    (async ? MSG_DONTWAIT : 0)));
 		DBG(NLMSG, ul_debugobj(nl, "got message"));
 		if (rc < 0) {
 			if (errno == EWOULDBLOCK || errno == EAGAIN) {
@@ -254,9 +254,8 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 
 			process_msg(nl, nh);
 		}
-		if (!wait_for_nlmsg_done) {
+		if (!loop)
 			return UL_NL_OK;
-		}
 		DBG(NLMSG, ul_debugobj(nl, "looping until NLMSG_DONE"));
 	}
 }
@@ -340,7 +339,7 @@ const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int addrid) {
 			p = addr_str;
 			while (*p) p++;
 			*p++ = '%';
-			strncpy(p, addr->iface, IF_NAMESIZE);
+			strncpy(p, addr->ifname, IF_NAMESIZE);
 			return addr_str;
 		} else
 			return inet_ntop(AF_INET6, *ifa_addr, addr_str, sizeof(addr_str));
@@ -354,7 +353,7 @@ static ul_nl_rc callback_addr(struct ul_nl_data *nl) {
 	char *str;
 
 	printf("%s address:\n", ((nl->rtm_event ? "Add" : "Delete")));
-	printf("  interface: %s\n", nl->addr.iface);
+	printf("  interface: %s\n", nl->addr.ifname);
 	if (nl->addr.ifa_family == AF_INET)
 		printf("  IPv4 %s\n",
 		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
@@ -392,7 +391,7 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 		return 1;
 	if (ul_nl_dump_request(&nl, RTM_GETADDR) != UL_NL_OK)
 		goto error;
-	if (ul_nl_process(&nl, false, true) != UL_NL_DONE)
+	if (ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP) != UL_NL_DONE)
 		goto error;
 	puts("RTM_GETADDR dump finished.");
 
@@ -406,7 +405,7 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 		goto error;
 	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */
-	ulrc = ul_nl_process(&nl, false, true);
+	ulrc = ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP);
 //	if (ulrc == UL_NL_OK || ulrc == UL_NL_ABORT)
 	if (ulrc == UL_NL_OK)
 		rc = 0;

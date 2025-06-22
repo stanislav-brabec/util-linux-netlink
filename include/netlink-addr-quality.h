@@ -54,6 +54,7 @@ struct ip_quality_item {
 struct iface_quality_item {
 	struct list_head entry;
 	uint32_t ifa_index;
+	char *ifname;
 	struct list_head ip_quality_list_4;
 	struct list_head ip_quality_list_6;
 /* FIXME: probably move to global part */

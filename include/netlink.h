@@ -64,7 +64,7 @@ struct ul_nl_addr {
 	int ifa_address_len;
 	void *ifa_local;	/* IFA_LOCAL */
 	int ifa_local_len;
-	char *iface;		/* interface from ifa_index as string */
+	char *ifname;		/* interface from ifa_index as string */
 	void *address;		/* IFA_LOCAL, if defined, otherwise
 				 * IFA_ADDRESS. This is what you want it most
 				 * cases */
@@ -124,15 +124,19 @@ ul_nl_rc ul_nl_close(struct ul_nl_data *nl);
  */
 ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
 
+/* Values for async */
+#define UL_NL_SYNC false		/* synchronous mode */
+#define UL_NL_ASYNC true		/* asynchronous mode */
+#define UL_NL_ONESHOT false		/* return after processing message */
+#define UL_NL_LOOP  true		/* wait for NLMSG_DONE */
 /* Process netlink messages.
- * asynchronous: If true, return UL_NL_WOULDBLOCK immediately if there is
- *   no data ready. If false, wait for a message.
- * wait_for_nlmsg_done: If true, run in a loop until NLMSG_DONE is
- *   received. Returns after finishing a reply from ul_nl_dump_request(),
- *   otherwise it acts as an infinite loop. If false, it returns after
- *   processing one message.
+ * async: If true, return UL_NL_WOULDBLOCK immediately if there is no data
+ *   ready. If false, wait for a message.
+ * loop: If true, run in a loop until NLMSG_DONE is received. Returns after
+ *   finishing a reply from ul_nl_dump_request(), otherwise it acts as an
+ *   infinite loop. If false, it returns after processing one message.
  */
-ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_nlmsg_done);
+ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool async, bool loop);
 
 /* Duplicate ul_nl_addr structure to a newly allocated memory */
 struct ul_nl_addr *ul_nl_addr_dup (struct ul_nl_addr *addr);
