@@ -115,14 +115,18 @@ static int process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 		nl->addr.ifname = ifname;
 	else
 		/* There can be race, we do not return error here */
-		/* TRANSLATORS: unknown network interface, maximum 15 (IF_NAMESIZE-1) bytes */
+		/* FIXME: Probably should return UL_NL_SOFT_ERROR. */
+		/* FIXME I18N: *"unknown"* is too generic. Use context. */
+		/* TRANSLATORS: unknown network interface, maximum 15
+		 * (IF_NAMESIZE-1) bytes */
 		nl->addr.ifname = _("unknown");
 	nl->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
 	ON_DBG(ADDR, dbg_addr(nl));
 
 	/* Process rtattr. */
 	len = nh->nlmsg_len - NLMSG_LENGTH(sizeof(*ifaddr));
-	for (attr = IFA_RTA(ifaddr); RTA_OK(attr, len); attr = RTA_NEXT(attr, len)) {
+	for (attr = IFA_RTA(ifaddr); RTA_OK(attr, len);
+	     attr = RTA_NEXT(attr, len)) {
 		/* Proces most common rta attributes */
 		DBG(ADDR, ul_debugobj(attr, "processing rtattr"));
 		switch (attr->rta_type) {
@@ -153,10 +157,14 @@ static int process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 						     UL_NL_ADDR_IFA_LOCAL)));
 			break;
 		case IFA_CACHEINFO:
-			struct ifa_cacheinfo *ci = (struct ifa_cacheinfo *)RTA_DATA(attr);
+			struct ifa_cacheinfo *ci =
+				(struct ifa_cacheinfo *)RTA_DATA(attr);
 			nl->addr.ifa_valid = ci->ifa_valid;
-			DBG(ADDR, ul_debug(" IFA_CACHEINFO: ifa_prefered = %u, ifa_valid = %u",
-					  nl->addr.ifa_prefered, nl->addr.ifa_valid));
+			DBG(ADDR,
+			    ul_debug(" IFA_CACHEINFO: ifa_prefered = %u,"
+				     "ifa_valid = %u",
+				     nl->addr.ifa_prefered,
+				     nl->addr.ifa_valid));
 			break;
 		case IFA_FLAGS:
 			nl->addr.ifa_flags = *(uint32_t *)(RTA_DATA(attr));
