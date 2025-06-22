@@ -1,3 +1,17 @@
+/*
+ * Netlink address quality tree builder
+ *
+ * Copyright (C) 2025 Stanislav Brabec <sbrabec@suse.com>
+ *
+ * This file may be redistributed under the terms of the
+ * GNU Lesser General Public License.
+ *
+ * This set of netlink callbacks kernel and creates
+ * and/or maintains a linked list of requested type. Using callback fuctions
+ * and custom data, it could be used for arbitraty purpose.
+ *
+ */
+
 #include "netlink-addr-quality.h"
 #include "list.h"
 #include <net/if.h>

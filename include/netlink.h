@@ -17,7 +17,7 @@
  * cases.
  *
  */
- 
+
 #ifndef UTIL_LINUX_NETLINK
 #define UTIL_LINUX_NETLINK
 

@@ -329,20 +329,23 @@ const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int addrid) {
 	static char addr_str[INET6_ADDRSTRLEN+IF_NAMESIZE];
 
 	if (addr->ifa_family == AF_INET)
-		return inet_ntop(AF_INET, *ifa_addr, addr_str, sizeof(addr_str));
+		return inet_ntop(AF_INET,
+				 *ifa_addr, addr_str, sizeof(addr_str));
 	else {
 	/* if (addr->ifa_family == AF_INET6) */
 		if (addr->ifa_scope == RT_SCOPE_LINK) {
 			char *p;
 
-			inet_ntop(AF_INET6, *ifa_addr, addr_str, sizeof(addr_str));
+			inet_ntop(AF_INET6,
+				  *ifa_addr, addr_str, sizeof(addr_str));
 			p = addr_str;
 			while (*p) p++;
 			*p++ = '%';
 			strncpy(p, addr->ifname, IF_NAMESIZE);
 			return addr_str;
 		} else
-			return inet_ntop(AF_INET6, *ifa_addr, addr_str, sizeof(addr_str));
+			return inet_ntop(AF_INET6,
+					 *ifa_addr, addr_str, sizeof(addr_str));
 	}
 }
 
