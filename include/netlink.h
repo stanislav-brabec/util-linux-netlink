@@ -64,10 +64,12 @@ struct ul_nl_addr {
 	int ifa_address_len;
 	void *ifa_local;	/* IFA_LOCAL */
 	int ifa_local_len;
+	char *iface;		/* interface from ifa_index as string */
 	void *address;		/* IFA_LOCAL, if defined, otherwise
 				 * IFA_ADDRESS. This is what you want it most
 				 * cases */
 	int address_len;
+	uint32_t ifa_prefered;	/* ifa_prefered from IFA_CACHEINFO */
 	uint32_t ifa_valid;	/* ifa_valid from IFA_CACHEINFO */
 	/* More can be implemented in future. */
 };
@@ -156,6 +158,7 @@ _INLINE_ const char *ul_nl_addr_indextoname(const struct ul_nl_addr *addr){
 #define UL_NL_ADDR_ADDRESS offsetof(struct ul_nl_addr, address)
 #define UL_NL_ADDR_IFA_ADDRESS offsetof(struct ul_nl_addr, ifa_address)
 #define UL_NL_ADDR_IFA_LOCAL offsetof(struct ul_nl_addr, ifa_local)
-const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int id);
+/* Warning: id must be one of above. No checks are performed */
+const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int addrid);
 
 #endif /* UTIL_LINUX_NETLINK */

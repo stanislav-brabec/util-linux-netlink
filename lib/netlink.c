@@ -19,6 +19,7 @@
 #include <netinet/in.h>
 #include "netlink.h"
 #include "debug.h"
+#include "nls.h"
 
 /*
  * Debug stuff (based on include/debug.h)
@@ -26,11 +27,12 @@
 static UL_DEBUG_DEFINE_MASK(netlink);
 UL_DEBUG_DEFINE_MASKNAMES(netlink) = UL_DEBUG_EMPTY_MASKNAMES;
 
-#define NETLINK_DEBUG_INIT	(1 << 1)
-#define NETLINK_DEBUG_MSG	(1 << 2)
+#define ULNETLINK_DEBUG_INIT	(1 << 1)
+#define ULNETLINK_DEBUG_NLMSG	(1 << 2)
+#define ULNETLINK_DEBUG_INFO	(1 << 2)
 
-#define DBG(m, x)       __UL_DBG(netlink, NETLINK_DEBUG_, m, x)
-#define ON_DBG(m, x)    __UL_DBG_CALL(netlink, NETLINK_DEBUG_, m, x)
+#define DBG(m, x)       __UL_DBG(netlink, ULNETLINK_DEBUG_, m, x)
+#define ON_DBG(m, x)    __UL_DBG_CALL(netlink, ULNETLINK_DEBUG_, m, x)
 
 #define UL_DEBUG_CURRENT_MASK	UL_DEBUG_MASK(netlink)
 #include "debugobj.h"
@@ -39,10 +41,11 @@ static void netlink_init_debug(void)
 {
 	if (netlink_debug_mask)
 		return;
-	__UL_INIT_DEBUG_FROM_ENV(netlink, NETLINK_DEBUG_, 0, NETLINK_DEBUG);
+	__UL_INIT_DEBUG_FROM_ENV(netlink, ULNETLINK_DEBUG_, 0, ULNETLINK_DEBUG);
 }
 
 void ul_nl_init(struct ul_nl_data *nl) {
+	netlink_init_debug();
 	memset(nl, 0, sizeof(struct ul_nl_data));
 }
 
@@ -57,11 +60,36 @@ ul_nl_rc ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type) {
 	req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 	req.nh.nlmsg_type = nlmsg_type;
 	req.g.rtgen_family = AF_NETLINK;
-
 	nl->dumping = true;
+	DBG(NLMSG, ul_debugobj(nl, "sending dump request"));
 	if (send(nl->fd, &req, req.nh.nlmsg_len, 0) == -1)
 		return UL_NL_ERROR;
 	return UL_NL_OK;
+}
+
+#define DBG_CASE(x) case x: str = #x; break
+#define DBG_CASE_DEF8(x) default: snprintf(strx+2, 3, "%hhx", x); str = strx; break
+static void dbg_addr(struct ul_nl_data *nl)
+{
+	char *str;
+	char strx[5] = "0x";
+	switch (nl->addr.ifa_family) {
+		DBG_CASE(AF_INET);
+		DBG_CASE(AF_INET6);
+		DBG_CASE_DEF8(nl->addr.ifa_family);
+	}
+	DBG(NLMSG, ul_debug(" ifa_family: %s", str));
+	switch (nl->addr.ifa_scope) {
+		DBG_CASE(RT_SCOPE_UNIVERSE);
+		DBG_CASE(RT_SCOPE_SITE);
+		DBG_CASE(RT_SCOPE_LINK);
+		DBG_CASE(RT_SCOPE_HOST);
+		DBG_CASE(RT_SCOPE_NOWHERE);
+		DBG_CASE_DEF8(nl->addr.ifa_scope);
+	}
+	DBG(NLMSG, ul_debug(" interface: %s (ifa_index %d)",
+			  nl->addr.iface, nl->addr.ifa_index));
+	DBG(NLMSG, ul_debug(" ifa_flags: 0x%x", nl->addr.ifa_flags));
 }
 
 /* Expecting non-zero nl->callback_addr! */
@@ -69,11 +97,13 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 {
 	struct ifaddrmsg *ifaddr;
 	struct rtattr *attr;
+	static char iface[IF_NAMESIZE];
 	int len;
 	bool has_local_address = false;
 	ul_nl_rc ulrc = UL_NL_OK;
 
-	memset(&(nl->addr), 0, sizeof(nl->addr));
+	DBG(NLMSG, ul_debugobj(nh, "processing nlmsghdr"));
+	memset(&(nl->addr), 0, sizeof(struct ul_nl_addr));
 
 	/* Process ifaddrmsg. */
 	ifaddr = NLMSG_DATA(nh);
@@ -81,12 +111,20 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 	nl->addr.ifa_family = ifaddr->ifa_family;
 	nl->addr.ifa_scope = ifaddr->ifa_scope;
 	nl->addr.ifa_index = ifaddr->ifa_index;
+	if ((if_indextoname(ifaddr->ifa_index, iface)))
+		nl->addr.iface = iface;
+	else
+		/* There can be race, we do not return error here */
+		/* TRANSLATORS: unknown network interface, maximum 15 (IF_NAMESIZE-1) bytes */
+		nl->addr.iface = _("unknown");
 	nl->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
+	ON_DBG(NLMSG, dbg_addr(nl));
 
 	/* Process rtattr. */
 	len = nh->nlmsg_len - NLMSG_LENGTH(sizeof(*ifaddr));
 	for (attr = IFA_RTA(ifaddr); RTA_OK(attr, len); attr = RTA_NEXT(attr, len)) {
 		/* Proces most common rta attributes */
+		DBG(NLMSG, ul_debugobj(attr, "processing rtattr"));
 		switch (attr->rta_type) {
 		case IFA_ADDRESS:
 			nl->addr.ifa_address = RTA_DATA(attr);
@@ -95,20 +133,35 @@ static ul_nl_rc process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 				nl->addr.address = RTA_DATA(attr);
 				nl->addr.address_len = RTA_PAYLOAD(attr);
 			}
+			DBG(NLMSG,
+			    ul_debug(" rtattr IFA_ADDRESS%s: %s",
+				     (has_local_address ? "" :
+				      " (setting address)"),
+				     ul_nl_addr_ntop(&(nl->addr),
+						     UL_NL_ADDR_IFA_ADDRESS)));
 			break;
 		case IFA_LOCAL:
 			/* Point to Point interface listens has local address
 			 * and listens there */
 			has_local_address = true;
 			nl->addr.ifa_local = nl->addr.address = RTA_DATA(attr);
-			nl->addr.ifa_local_len = nl->addr.address_len = RTA_PAYLOAD(attr);
+			nl->addr.ifa_local_len =
+				nl->addr.address_len = RTA_PAYLOAD(attr);
+			DBG(NLMSG,
+			    ul_debug(" rtattr IFA_LOCAL (setting address): %s",
+				     ul_nl_addr_ntop(&(nl->addr),
+						     UL_NL_ADDR_IFA_LOCAL)));
 			break;
 		case IFA_CACHEINFO:
 			struct ifa_cacheinfo *ci = (struct ifa_cacheinfo *)RTA_DATA(attr);
 			nl->addr.ifa_valid = ci->ifa_valid;
+			DBG(NLMSG, ul_debug(" rtattr IFA_CACHEINFO: ifa_prefered = %d, ifa_valid = %d",
+					  nl->addr.ifa_prefered, nl->addr.ifa_valid));
 			break;
 		case IFA_FLAGS:
 			nl->addr.ifa_flags = *(uint32_t *)(RTA_DATA(attr));
+			DBG(NLMSG, ul_debug(" rtattr IFA_FLAGS: %x",
+					  nl->addr.ifa_flags));
 			break;
 		}
 	}
@@ -157,7 +210,8 @@ ul_nl_rc ul_nl_process(struct ul_nl_data *nl, bool asynchronous, bool wait_for_n
 	};
 
 	while (1) {
-		rc = recvmsg(nl->fd, &msg, (wait_for_nlmsg_done ? 0 : (asynchronous ? MSG_DONTWAIT : 0)));
+		rc = recvmsg(nl->fd, &msg, (wait_for_nlmsg_done ? 0 :
+					    (asynchronous ? MSG_DONTWAIT : 0)));
 		if (rc < 0) {
 			if (errno == EWOULDBLOCK || errno == EAGAIN)
 				return UL_NL_WOULDBLOCK;
@@ -248,22 +302,23 @@ void ul_nl_addr_free (struct ul_nl_addr *addr) {
 	free(addr);
 }
 
-const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int id) {
-	const void **ifa_addr = (const void **)((const char *)addr + id);
+const char *ul_nl_addr_ntop (const struct ul_nl_addr *addr, int addrid) {
+	const void **ifa_addr = (const void **)((const char *)addr + addrid);
 	/* (INET6_ADDRSTRLEN-1) + (IF_NAMESIZE-1) + strlen("%") + 1 */
 	static char addr_str[INET6_ADDRSTRLEN+IF_NAMESIZE];
-	char *p;
 
 	if (addr->ifa_family == AF_INET)
 		return inet_ntop(AF_INET, *ifa_addr, addr_str, sizeof(addr_str));
 	else {
 	/* if (addr->ifa_family == AF_INET6) */
 		if (addr->ifa_scope == RT_SCOPE_LINK) {
+			char *p;
+
 			inet_ntop(AF_INET6, *ifa_addr, addr_str, sizeof(addr_str));
 			p = addr_str;
 			while (*p) p++;
 			*p++ = '%';
-			if_indextoname(addr->ifa_index, p);
+			strncpy(p, addr->iface, IF_NAMESIZE);
 			return addr_str;
 		} else
 			return inet_ntop(AF_INET6, *ifa_addr, addr_str, sizeof(addr_str));
