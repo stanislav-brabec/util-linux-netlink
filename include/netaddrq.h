@@ -1,5 +1,5 @@
 /*
- * Netlink address quality tree builder
+ * Netlink address quality rating tree builder
  *
  * Copyright (C) 2025 Stanislav Brabec <sbrabec@suse.com>
  *
@@ -40,9 +40,9 @@ enum ul_netaddrq_ip_rating {
 struct ul_netaddrq_data {
 	ul_nl_callback callback;	/* Function to process ul_netaddrq_data */
 	void *callback_data;		/* Arbitrary data for callback */
-	struct list_head ifaces_list;	/* The intefaces list */
-	int ifaces_count;		/* interface count */
-	bool ifaces_skip_dump;		/* Too many interfaces? */
+	struct list_head ifaces;	/* The intefaces list */
+	int nifaces;			/* interface count */
+	bool overflow;			/* Too many interfaces? */
 };
 /* Macro casting generic ul_nl_data->data_addr to struct ul_netaddrq_data */
 #define UL_NETADDRQ_DATA(nl) ((struct ul_netaddrq_data*)(nl->data_addr))
@@ -64,8 +64,8 @@ struct ul_netaddrq_iface {
 	struct list_head ip_quality_list_4;
 	struct list_head ip_quality_list_6;
 /* FIXME: probably move to global part */
-	bool ifaces_list_change_4;
-	bool ifaces_list_change_6;
+	bool ifaces_change_4;
+	bool ifaces_change_6;
 };
 
 /* Initialize ul_nl_data for use with netlink-addr-quality

@@ -88,6 +88,7 @@ static void dbg_addr(struct ul_nl_data *nl)
 		DBG_CASE(RT_SCOPE_NOWHERE);
 		DBG_CASE_DEF8(nl->addr.ifa_scope);
 	}
+	DBG(ADDR, ul_debug(" ifa_scope: %s", str));
 	DBG(ADDR, ul_debug(" interface: %s (ifa_index %u)",
 			  nl->addr.ifname, nl->addr.ifa_index));
 	DBG(ADDR, ul_debug(" ifa_flags: 0x%02x", nl->addr.ifa_flags));
@@ -392,7 +393,8 @@ static int callback_addr(struct ul_nl_data *nl) {
 	return 0;
 }
 
-int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unused__)))
+int main(int argc __attribute__((__unused__)),
+	 char *argv[] __attribute__((__unused__)))
 {
 	int rc = 1;
 	int ulrc; /* FIXME: not needed */

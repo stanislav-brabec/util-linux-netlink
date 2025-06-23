@@ -1,5 +1,5 @@
 /*
- * Netlink address quality tree builder
+ * Netlink address quality rating tree builder
  *
  * Copyright (C) 2025 Stanislav Brabec <sbrabec@suse.com>
  *
@@ -42,8 +42,8 @@ UL_DEBUG_DEFINE_MASKNAMES(netaddrq) = UL_DEBUG_EMPTY_MASKNAMES;
 #define ULNETADDRQ_DEBUG_INIT	(1 << 1)
 #define ULNETADDRQ_DEBUG_ADDR	(1 << 2)
 
-#define DBG(m, x)       __UL_DBG(neaddrq, ULNETADDRQ_DEBUG_, m, x)
-#define ON_DBG(m, x)    __UL_DBG_CALL(netlink, ULNETADDRQ_DEBUG_, m, x)
+#define DBG(m, x)       __UL_DBG(netaddrq, ULNETADDRQ_DEBUG_, m, x)
+#define ON_DBG(m, x)    __UL_DBG_CALL(netaddrq, ULNETADDRQ_DEBUG_, m, x)
 
 #define UL_DEBUG_CURRENT_MASK	UL_DEBUG_MASK(netaddrq)
 #include "debugobj.h"
@@ -56,9 +56,9 @@ static void netaddrq_init_debug(void)
 				 ULNETADDRQ_DEBUG);
 }
 
-static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *uladdr) {
+static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *addr) {
 	enum ul_netaddrq_ip_rating quality;
-	switch (uladdr->ifa_scope) {
+	switch (addr->ifa_scope) {
 	case RT_SCOPE_UNIVERSE:
 		quality = IP_QUALITY_SCOPE_UNIVERSE;
 		break;
@@ -72,55 +72,35 @@ static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *
 		quality = IP_QUALITY_BAD;
 		break;
 	}
-	if (uladdr->ifa_flags & IFA_F_TEMPORARY) {
+	if (addr->ifa_flags & IFA_F_TEMPORARY) {
 		if (quality <= IP_QUALITY_F_TEMPORARY)
 			quality = IP_QUALITY_F_TEMPORARY;
 	}
 	return quality;
 }
 
-static int callback_addr(struct ul_nl_data *nl) {
-	char *str;
-
-	printf("%s address:\n", (nl->rtm_event ? "Add" : "Delete"));
-	printf("  interface: %s\n", nl->addr.ifname);
-	if (nl->addr.ifa_family == AF_INET)
-		printf("  IPv4 %s\n",
-		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
-	else
-	/* if (nl->addr.ifa_family == AF_INET) */
-		printf("  IPv6 %s\n",
-		       ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS));
-	switch (nl->addr.ifa_scope) {
-	case RT_SCOPE_UNIVERSE:	str = "global"; break;
-	case RT_SCOPE_SITE:	str = "site"; break;
-	case RT_SCOPE_LINK:	str = "link"; break;
-	case RT_SCOPE_NOWHERE:	str = "nowhere"; break;
-	default:		str = "other"; break;
-	}
-	printf("  scope: %s\n", str);
-	printf("  valid: %d\n", nl->addr.ifa_valid);
+static int callback_addr(struct ul_nl_data *nl __attribute__((__unused__))) {
 	return 0;
 }
 
 /* Netlink callback evaluating the address quality and building the list of
  * interface lists */
 static int callback_addrq(struct ul_nl_data *nl) {
-	struct ul_netaddrq_data *uladdrq = UL_NETADDRQ_DATA(nl);
+	struct ul_netaddrq_data *addrq = UL_NETADDRQ_DATA(nl);
 	struct list_head *li, *ipq_list;
-	bool *ifaces_list_change;
+	bool *ifaces_change;
 	struct ul_netaddrq_iface *ifaceq = NULL;
 	struct ul_netaddrq_ip *ipq = NULL;
 
 	// FIXME: can fail
 	callback_addr(nl);
 
-	/* Search for interface in ifaces_list */
-	uladdrq->ifaces_count = 0;
+	/* Search for interface in ifaces */
+	addrq->nifaces = 0;
 
 			debug_net(". callback_addrq()\n");
 			printf("  nl->addr.ifa_index %d\n", nl->addr.ifa_index);
-	list_for_each(li, &(uladdrq->ifaces_list)) {
+	list_for_each(li, &(addrq->ifaces)) {
 		struct ul_netaddrq_iface *ifaceqq;
 		ifaceqq = list_entry(li, struct ul_netaddrq_iface, entry);
 			printf("  ifaceqq->ifa_index %d\n", ifaceqq->ifa_index);
@@ -129,14 +109,14 @@ static int callback_addrq(struct ul_nl_data *nl) {
 			debug_net("+ interface found in the list\n");
 			break;
 		}
-		uladdrq->ifaces_count++;
+		addrq->nifaces++;
 	}
 
 	if (ifaceq == NULL) {
 		if (nl->rtm_event) {
-			if (uladdrq->ifaces_count >= max_ifaces) {
+			if (addrq->nifaces >= max_ifaces) {
 				debug_net("+ too many interfaces\n");
-				uladdrq->ifaces_skip_dump = true;
+				addrq->overflow = true;
 				return UL_NL_IFACES_MAX;
 			}
 			debug_net("+ allocating new interface\n");
@@ -149,7 +129,7 @@ static int callback_addrq(struct ul_nl_data *nl) {
 			/* FIXME: can fail */
 			ifaceq->ifname = strdup(nl->addr.ifname);
 			debug_net("+ allocating new interface\n");
-			list_add_tail(&(ifaceq->entry), &(uladdrq->ifaces_list));
+			list_add_tail(&(ifaceq->entry), &(addrq->ifaces));
 		} else {
 			/* Should never happen, should be soft error? FIXME */
 			debug_net("- interface not found\n");
@@ -158,11 +138,11 @@ static int callback_addrq(struct ul_nl_data *nl) {
 	}
 	if (nl->addr.ifa_family == AF_INET) {
 		ipq_list = &(ifaceq->ip_quality_list_4);
-		ifaces_list_change = &(ifaceq->ifaces_list_change_4);
+		ifaces_change = &(ifaceq->ifaces_change_4);
 	} else {
 	/* if (nl->addr.ifa_family == AF_INET6) */
 		ipq_list = &(ifaceq->ip_quality_list_6);
-		ifaces_list_change = &(ifaceq->ifaces_list_change_6);
+		ifaces_change = &(ifaceq->ifaces_change_6);
 	}
 
 	list_for_each(li, ipq_list) {
@@ -176,24 +156,24 @@ static int callback_addrq(struct ul_nl_data *nl) {
 	}
 
 	if (nl->rtm_event) {
-		struct ul_nl_addr *uladdr;
+		struct ul_nl_addr *addr;
 #ifdef DEBUGGING
 		fprintf(dbf, "network: + new address (address_len = %d)\n", nl->addr.address_len); fflush(dbf);
 #endif
 		/* FIXME: can fail. What happens if it is NULL? */
-		uladdr = ul_nl_addr_dup(&(nl->addr));
+		addr = ul_nl_addr_dup(&(nl->addr));
 		if (ipq == NULL) {
 			debug_net("+ allocating new address\n");
 			ipq = malloc(sizeof(struct ul_netaddrq_ip));
-			ipq->addr = uladdr;
+			ipq->addr = addr;
 			list_add_tail(&(ipq->entry), ipq_list);
-			*ifaces_list_change = true;
+			*ifaces_change = true;
 		} else {
 			debug_net("+ replacing address data\n");
 			ul_nl_addr_free(ipq->addr);
-			ipq->addr = uladdr;
+			ipq->addr = addr;
 		}
-		ipq->quality = evaluate_ip_quality(uladdr);
+		ipq->quality = evaluate_ip_quality(addr);
 		fprintf(dbf, "  quality: %d\n", ipq->quality);
 	} else {
 		debug_net("address removed\n");
@@ -202,36 +182,39 @@ static int callback_addrq(struct ul_nl_data *nl) {
 			return UL_NL_SOFT_ERROR;
 		/* Delist the address */
 		debug_net("- deleting address\n");
-		*ifaces_list_change = true;
+		*ifaces_change = true;
 		list_del(&(ipq->entry));
 		ul_nl_addr_free(ipq->addr);
 		free(ipq);
 		if (list_empty(&(ifaceq->ip_quality_list_4)) && list_empty(&(ifaceq->ip_quality_list_6))) {
 			debug_net("- deleted last IP in the interface, removing interface\n");
 			list_del(&(ifaceq->entry));
-			uladdrq->ifaces_count--;
+			addrq->nifaces--;
 			free(ifaceq->ifname);
 			free(ifaceq);
 		}
 	}
-	if (uladdrq->callback)
-		return (*(uladdrq->callback))(nl);
+	if (addrq->callback)
+		return (*(addrq->callback))(nl);
 	return 0;
 }
 
 /* Initialize ul_nl_data for use with netlink-addr-quality */
 int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
 {
-	if (!(nl->data_addr = malloc(sizeof(struct ul_netaddrq_data))))
-		return UL_NL_SOFT_ERROR;
-	nl->callback_addr = callback_addrq;
+	struct ul_netaddrq_data *addrq;
 
-	struct ul_netaddrq_data *uladdrq = UL_NETADDRQ_DATA(nl);
-	uladdrq->callback = callback;
-	uladdrq->callback_data = data;
-	uladdrq->ifaces_count = 0;
-	uladdrq->ifaces_skip_dump = false;
-	INIT_LIST_HEAD(&(uladdrq->ifaces_list));
+	netaddrq_init_debug();
+	if (!(nl->data_addr = malloc(sizeof(struct ul_netaddrq_data))))
+		return -1;
+	nl->callback_addr = callback_addrq;
+	addrq = UL_NETADDRQ_DATA(nl);
+	addrq->callback = callback;
+	addrq->callback_data = data;
+	addrq->nifaces = 0;
+	addrq->overflow = false;
+	INIT_LIST_HEAD(&(addrq->ifaces));
+	DBG(ADDR, ul_debugobj(addrq, "callback initialized"));
 	return 0;
 }
 
@@ -298,15 +281,15 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 
 /* Requires callback_data being a FILE */
 static int ul_netaddrq_dump(struct ul_nl_data *nl) {
-	struct ul_netaddrq_data *uladdrq = UL_NETADDRQ_DATA(nl);
+	struct ul_netaddrq_data *addrq = UL_NETADDRQ_DATA(nl);
 	FILE *out;
 	struct list_head *li;
 	struct ul_netaddrq_iface *ifaceq;
 
 	// FIXME: can fail
-	out = (FILE *)uladdrq->callback_data;
+	out = (FILE *)addrq->callback_data;
 	fprintf(out, "======\n"); fflush(out);
-	list_for_each(li, &(uladdrq->ifaces_list)) {
+	list_for_each(li, &(addrq->ifaces)) {
 		ifaceq = list_entry(li, struct ul_netaddrq_iface, entry);
 
 		fprintf(out, "%d %s:\n", ifaceq->ifa_index, ifaceq->ifname);
