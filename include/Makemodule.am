@@ -48,8 +48,8 @@ dist_noinst_HEADERS += \
 	include/monotonic.h \
 	include/mount-api-utils.h \
 	include/namespace.h \
+	include/netaddrq.h \
 	include/netlink.h \
-	include/netlink-addr-quality.h \
 	include/nls.h \
 	include/optutils.h \
 	include/pager.h \

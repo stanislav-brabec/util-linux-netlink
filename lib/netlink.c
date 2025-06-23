@@ -49,7 +49,7 @@ void ul_nl_init(struct ul_nl_data *nl) {
 	memset(nl, 0, sizeof(struct ul_nl_data));
 }
 
-int ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type) {
+int ul_nl_request_dump(struct ul_nl_data *nl, uint16_t nlmsg_type) {
 	struct {
 		struct nlmsghdr nh;
 		struct rtgenmsg g;
@@ -408,7 +408,7 @@ int main(int argc __attribute__((__unused__)),
 	if (ul_nl_open(&nl, 0))
 		// FIXME: real rc
 		return -1;
-	if (ul_nl_dump_request(&nl, RTM_GETADDR))
+	if (ul_nl_request_dump(&nl, RTM_GETADDR))
 		goto error;
 	if (ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP) != UL_NL_DONE)
 		goto error;

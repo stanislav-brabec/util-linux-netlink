@@ -36,10 +36,10 @@
 #define	UL_NL_WOULDBLOCK	1	/* no data are ready
 					 * (for asynchronous mode) */
 #define	UL_NL_DONE		2	/* processing reached NLMSG_DONE
-					 * (for ul_nl_dump_request() */
+					 * (for ul_nl_request_dump() */
 #define	UL_NL_RETURN		3	/* callback initiated immediate
-					   return */
-#define	UL_NL_SOFT_ERROR	4	/* soft error, inicating a race
+					 * return */
+#define	UL_NL_SOFT_ERROR	4	/* soft error, indicating a race
 					 * condition or message relating to
 					 * events before program start); could
 					 * be optionally ignored */
@@ -105,7 +105,7 @@ struct ul_nl_data {
 void ul_nl_init(struct ul_nl_data *nl);
 
 /* Open a netlink connection.
- * nl_groups: Applies for monitoring. In case of ul_nl_dump_request(),
+ * nl_groups: Applies for monitoring. In case of ul_nl_request_dump(),
  *   use its argument to select one.
  *
  * Close and open vs. initial open with parameters?
@@ -127,7 +127,7 @@ int ul_nl_close(struct ul_nl_data *nl);
  * Under normal conditions, use ul_nl_process(nl, false, true); for processing
  * the reply
  */
-int ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
+int ul_nl_request_dump(struct ul_nl_data *nl, uint16_t nlmsg_type);
 
 /* Values for async */
 #define UL_NL_SYNC false		/* synchronous mode */
@@ -138,7 +138,7 @@ int ul_nl_dump_request(struct ul_nl_data *nl, uint16_t nlmsg_type);
  * async: If true, return UL_NL_WOULDBLOCK immediately if there is no data
  *   ready. If false, wait for a message.
  * loop: If true, run in a loop until NLMSG_DONE is received. Returns after
- *   finishing a reply from ul_nl_dump_request(), otherwise it acts as an
+ *   finishing a reply from ul_nl_request_dump(), otherwise it acts as an
  *   infinite loop. If false, it returns after processing one message.
  */
 int ul_nl_process(struct ul_nl_data *nl, bool async, bool loop);
