@@ -3,8 +3,7 @@
  *
  * Copyright (C) 2025 Stanislav Brabec <sbrabec@suse.com>
  *
- * This file may be redistributed under the terms of the
- * GNU Lesser General Public License.
+ * This program is freely distributable.
  *
  * This set of netlink callbacks kernel and creates
  * and/or maintains a linked list of requested type. Using callback fuctions

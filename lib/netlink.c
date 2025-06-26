@@ -3,8 +3,7 @@
  *
  * Copyright (C) 2025 Stanislav Brabec <sbrabec@suse.com>
  *
- * This file may be redistributed under the terms of the
- * GNU Lesser General Public License.
+ * This program is freely distributable.
  *
  * This set of functions processes netlink messages from kernel and creates
  * and/or maintains a linked list of requested type. Using callback fuctions
@@ -420,7 +419,8 @@ int main(int argc __attribute__((__unused__)),
 
 	/* Monitor further changes */
 	puts("Going to monitor mode.");
-	if ((rc = ul_nl_open(&nl, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR)))
+	if ((rc = ul_nl_open(&nl, RTMGRP_LINK |
+			     RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR)))
 		goto error;
 	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */

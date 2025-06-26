@@ -3,8 +3,7 @@
  *
  * Copyright (C) 2025 Stanislav Brabec <sbrabec@suse.com>
  *
- * This file may be redistributed under the terms of the
- * GNU Lesser General Public License.
+ * This program is freely distributable.
  *
  * This set of functions processes netlink messages from the kernel socket,
  * joins message parts into a single structure and calls callback.
@@ -33,16 +32,15 @@
  * Negative return codes indicate fatal errors.
  */
 
-#define	UL_NL_WOULDBLOCK	1	/* no data are ready
-					 * (for asynchronous mode) */
-#define	UL_NL_DONE		2	/* processing reached NLMSG_DONE
-					 * (for ul_nl_request_dump() */
-#define	UL_NL_RETURN		3	/* callback initiated immediate
-					 * return */
-#define	UL_NL_SOFT_ERROR	4	/* soft error, indicating a race
-					 * condition or message relating to
-					 * events before program start); could
-					 * be optionally ignored */
+#define	UL_NL_WOULDBLOCK 1  /* no data are ready (for asynchronous mode) */
+#define	UL_NL_DONE	 2  /* processing reached NLMSG_DONE (for
+			     * ul_nl_request_dump() */
+#define	UL_NL_RETURN	 3  /* callback initiated immediate return; if you use
+			     * it, keep in mind that further processing could
+			     * reach unprocessed NLMSG_DONE */
+#define	UL_NL_SOFT_ERROR 4  /* soft error, indicating a race condition or
+			     * message relating to events before program
+			     * start); could be optionally ignored */
 
 struct ul_nl_data;
 
@@ -80,18 +78,18 @@ struct ul_nl_addr {
 };
 
 /* Values for rtm_event */
-#define UL_NL_RTM_DEL false		/* processing RTM_DEL_* */
-#define UL_NL_RTM_NEW true		/* processing RTM_NEW_* */
+#define UL_NL_RTM_DEL false	/* processing RTM_DEL_* */
+#define UL_NL_RTM_NEW true	/* processing RTM_NEW_* */
 
 struct ul_nl_data {
 	/* "static" part of the structure, filled once and kept */ 
-	ul_nl_callback callback_addr;	/* Function to process ul_nl_addr */
-	void *data_addr;		/* Arbitrary data of callback_addr */
-	int fd;				/* netlink socket FD */
+	ul_nl_callback callback_addr; /* Function to process ul_nl_addr */
+	void *data_addr;	/* Arbitrary data of callback_addr */
+	int fd;			/* netlink socket FD */
 
 	/* volatile part of the structure, filled by the current message */
-	bool rtm_event;			/* UL_NL_RTM_DEL or UL_NL_RTM_NEW */
-	bool dumping;			/* Dump in progress */
+	bool rtm_event;		/* UL_NL_RTM_DEL or UL_NL_RTM_NEW */
+	bool dumping;		/* Dump in progress */
 
 	/* volatile part of the structure that depends on message typ */
 	union {
@@ -130,10 +128,10 @@ int ul_nl_close(struct ul_nl_data *nl);
 int ul_nl_request_dump(struct ul_nl_data *nl, uint16_t nlmsg_type);
 
 /* Values for async */
-#define UL_NL_SYNC false		/* synchronous mode */
-#define UL_NL_ASYNC true		/* asynchronous mode */
-#define UL_NL_ONESHOT false		/* return after processing message */
-#define UL_NL_LOOP  true		/* wait for NLMSG_DONE */
+#define UL_NL_SYNC false	/* synchronous mode */
+#define UL_NL_ASYNC true	/* asynchronous mode */
+#define UL_NL_ONESHOT false	/* return after processing message */
+#define UL_NL_LOOP  true	/* wait for NLMSG_DONE */
 /* Process netlink messages.
  * async: If true, return UL_NL_WOULDBLOCK immediately if there is no data
  *   ready. If false, wait for a message.
