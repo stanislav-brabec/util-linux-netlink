@@ -19,12 +19,6 @@
 /* Specific return code */
 #define	UL_NL_IFACES_MAX	 64	/* ADDR: Too many interfaces */
 
-/*
-struct ul_netaddrq {
-	ul_nl_addr *addr;
-} ul_netaddrq;
-*/
-
 /* Network address "quality". Higher means worse. */
 enum ul_netaddrq_ip_rating {
 	IP_QUALITY_SCOPE_UNIVERSE,
@@ -35,13 +29,17 @@ enum ul_netaddrq_ip_rating {
 	IP_QUALITY_BAD
 };
 
-/* Data structure in ul_nl_data */
-struct ul_netaddrq_data {
-	ul_nl_callback callback;	/* Function to process ul_netaddrq_data */
-	void *callback_data;		/* Arbitrary data for callback */
-	struct list_head ifaces;	/* The intefaces list */
-	int nifaces;			/* interface count */
-	bool overflow;			/* Too many interfaces? */
+/* Data structure in ul_nl_data You can use callback_pre for filtering events
+ * you want to get into the list, callback_post to check the processed data or
+ * use the list after processing
+ */
+   struct ul_netaddrq_data {
+	ul_nl_callback callback_pre;  /* Function to process ul_netaddrq_data */
+	ul_nl_callback callback_post; /* Function to process ul_netaddrq_data */
+	void *callback_data;	      /* Arbitrary data for callback */
+	struct list_head ifaces;      /* The intefaces list */
+	int nifaces;		      /* interface count */
+	bool overflow;		      /* Too many interfaces? */
 };
 /* Macro casting generic ul_nl_data->data_addr to struct ul_netaddrq_data */
 #define UL_NETADDRQ_DATA(nl) ((struct ul_netaddrq_data*)(nl->data_addr))
@@ -71,6 +69,7 @@ struct ul_netaddrq_iface {
  * callback: Process the data after updating the tree. If NULL, it just
  *   updates the tree and everything has to be processed outside.
  */
-int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data);
+int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback_pre,
+		     ul_nl_callback callback_post, void *data);
 
 #endif /* UTIL_LINUX_NETADDRQ_H */

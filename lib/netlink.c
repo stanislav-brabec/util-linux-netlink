@@ -23,12 +23,23 @@
 /*
  * Debug stuff (based on include/debug.h)
  */
-static UL_DEBUG_DEFINE_MASK(netlink);
-UL_DEBUG_DEFINE_MASKNAMES(netlink) = UL_DEBUG_EMPTY_MASKNAMES;
-
+#define ULNETLINK_DEBUG_HELP	(1 << 0)
 #define ULNETLINK_DEBUG_INIT	(1 << 1)
 #define ULNETLINK_DEBUG_NLMSG	(1 << 2)
 #define ULNETLINK_DEBUG_ADDR	(1 << 3)
+
+#define ULNETLINK_DEBUG_ALL	0x0F
+
+static UL_DEBUG_DEFINE_MASK(netlink);
+UL_DEBUG_DEFINE_MASKNAMES(netlink) =
+{
+	{ "all", ULNETLINK_DEBUG_ALL,		"complete netlink debugging" },
+	{ "help", ULNETLINK_DEBUG_HELP,		"this help" },
+	{ "nlmsg", ULNETLINK_DEBUG_NLMSG,	"netlink message debugging" },
+	{ "addr", ULNETLINK_DEBUG_ADDR,		"netlink address processing" },
+
+	{ NULL, 0 }
+};
 
 #define DBG(m, x)       __UL_DBG(netlink, ULNETLINK_DEBUG_, m, x)
 #define ON_DBG(m, x)    __UL_DBG_CALL(netlink, ULNETLINK_DEBUG_, m, x)
@@ -40,7 +51,11 @@ static void netlink_init_debug(void)
 {
 	if (netlink_debug_mask)
 		return;
+
 	__UL_INIT_DEBUG_FROM_ENV(netlink, ULNETLINK_DEBUG_, 0, ULNETLINK_DEBUG);
+
+	ON_DBG(HELP, ul_debug_print_masks("ULNETLINK_DEBUG",
+				UL_DEBUG_MASKNAMES(netlink)));
 }
 
 void ul_nl_init(struct ul_nl_data *nl) {
@@ -61,7 +76,6 @@ int ul_nl_request_dump(struct ul_nl_data *nl, uint16_t nlmsg_type) {
 	req.g.rtgen_family = AF_NETLINK;
 	nl->dumping = true;
 	DBG(NLMSG, ul_debugobj(nl, "sending dump request"));
-	// FIXME: real rc
 	if (send(nl->fd, &req, req.nh.nlmsg_len, 0) < 0)
 		return -1;
 	return 0;
@@ -98,8 +112,8 @@ static int process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 {
 	struct ifaddrmsg *ifaddr;
 	struct rtattr *attr;
-	static char ifname[IF_NAMESIZE];
 	int len;
+	static char ifname[IF_NAMESIZE];
 	bool has_local_address = false;
 
 	DBG(ADDR, ul_debugobj(nh, "processing nlmsghdr"));
@@ -114,12 +128,13 @@ static int process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 	if ((if_indextoname(ifaddr->ifa_index, ifname)))
 		nl->addr.ifname = ifname;
 	else
+	{
 		/* There can be race, we do not return error here */
-		/* FIXME: Probably should return UL_NL_SOFT_ERROR. */
 		/* FIXME I18N: *"unknown"* is too generic. Use context. */
 		/* TRANSLATORS: unknown network interface, maximum 15
 		 * (IF_NAMESIZE-1) bytes */
 		nl->addr.ifname = _("unknown");
+	}
 	nl->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
 	ON_DBG(ADDR, dbg_addr(nl));
 
@@ -177,6 +192,7 @@ static int process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 			break;
 		}
 	}
+	DBG(NLMSG, ul_debugobj(nl, "callback %p", nl->callback_addr));
 	return (*(nl->callback_addr))(nl);
 }
 
@@ -192,9 +208,8 @@ static int process_msg(struct ul_nl_data *nl, struct nlmsghdr *nh)
 	case RTM_DELADDR:
 	/* If callback_addr is not set, skip process_addr */
 		DBG(NLMSG, ul_debugobj(nl, "%s",
-				       (nl->rtm_event == UL_NL_RTM_DEL ?
+				       (UL_NL_IS_RTM_DEL(nl) ?
 					"RTM_DELADDR" : "RTM_NEWADDR")));
-		DBG(NLMSG, ul_debugobj(nl, "callback %p", nl->callback_addr));
 		if (nl->callback_addr)
 			rc = process_addr(nl, nh);
 		break;
@@ -246,8 +261,10 @@ int ul_nl_process(struct ul_nl_data *nl, bool async, bool loop)
 		}
 
 		for (nh = (struct nlmsghdr *)buf;
-		     NLMSG_OK(nh, (unsigned int)rc);
+		     NLMSG_OK(nh, rc);
 		     nh = NLMSG_NEXT(nh, rc)) {
+			int nlrc;
+
 			if (nh->nlmsg_type == NLMSG_ERROR) {
 				DBG(NLMSG, ul_debugobj(nl, "NLMSG_ERROR"));
 				nl->dumping = false;
@@ -260,7 +277,15 @@ int ul_nl_process(struct ul_nl_data *nl, bool async, bool loop)
 				return UL_NL_DONE;
 			}
 
-			process_msg(nl, nh);
+			nlrc = process_msg(nl, nh);
+			if (nlrc)
+			{
+				DBG(NLMSG,
+				    ul_debugobj(nl,
+						"process_msg() returned %d",
+						nlrc));
+				return nlrc;
+			}
 		}
 		if (!loop)
 			return 0;
@@ -395,8 +420,7 @@ static int callback_addr(struct ul_nl_data *nl) {
 int main(int argc __attribute__((__unused__)),
 	 char *argv[] __attribute__((__unused__)))
 {
-	int rc = 1;
-	int ulrc; /* FIXME: not needed */
+	int rc;
 	struct ul_nl_data nl;
 
 	/* Prepare netlink. */
@@ -404,9 +428,8 @@ int main(int argc __attribute__((__unused__)),
 	nl.callback_addr = callback_addr;
 
 	/* Dump addresses */
-	if (ul_nl_open(&nl, 0))
-		// FIXME: real rc
-		return -1;
+	if ((rc = ul_nl_open(&nl, 0)))
+		return 1;
 	if (ul_nl_request_dump(&nl, RTM_GETADDR))
 		goto error;
 	if (ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP) != UL_NL_DONE)
@@ -424,9 +447,8 @@ int main(int argc __attribute__((__unused__)),
 		goto error;
 	/* In this example UL_NL_ABORT never appears, as callback does
 	 * not use it. */
-	ulrc = ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP);
-//	if (rc == UL_NL_OK || rc == UL_NL_ABORT)
-	if (!ulrc)
+	rc = ul_nl_process(&nl, UL_NL_SYNC, UL_NL_LOOP);
+	if (rc == UL_NL_RETURN)
 		rc = 0;
 error:
 	if ((ul_nl_close(&nl)))

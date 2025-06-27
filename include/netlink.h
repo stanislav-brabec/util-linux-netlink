@@ -80,6 +80,9 @@ struct ul_nl_addr {
 /* Values for rtm_event */
 #define UL_NL_RTM_DEL false	/* processing RTM_DEL_* */
 #define UL_NL_RTM_NEW true	/* processing RTM_NEW_* */
+/* Checks for rtm_event */
+#define UL_NL_IS_RTM_DEL(nl) (!(nl->rtm_event))	/* is it RTM_DEL_*? */
+#define UL_NL_IS_RTM_NEW(nl) (nl->rtm_event)	/* is it RTM_NEW_*? */
 
 struct ul_nl_data {
 	/* "static" part of the structure, filled once and kept */ 

@@ -22,24 +22,27 @@
 /* Maximal number of interfaces. The algorithm has a quadratic complexity,
  * don't overflood it. */
 const int max_ifaces = 12;
-#define DEBUG 1
-#define DEBUGGING 1
-#ifdef DEBUG
-# define debug(s) do { fprintf(dbf,s); fflush(dbf); } while (0)
-FILE *dbf;
-#else
-# define debug(s) do { ; } while (0)
-#endif
-#define debug_net(s) debug("network: " s)
 
 /*
  * Debug stuff (based on include/debug.h)
  */
-static UL_DEBUG_DEFINE_MASK(netaddrq);
-UL_DEBUG_DEFINE_MASKNAMES(netaddrq) = UL_DEBUG_EMPTY_MASKNAMES;
-
+#define ULNETADDRQ_DEBUG_HELP	(1 << 0)
 #define ULNETADDRQ_DEBUG_INIT	(1 << 1)
-#define ULNETADDRQ_DEBUG_ADDR	(1 << 2)
+#define ULNETADDRQ_DEBUG_ADDRQ	(1 << 2)
+#define ULNETADDRQ_DEBUG_LIST	(1 << 3)
+
+#define ULNETADDRQ_DEBUG_ALL	0x0F
+
+static UL_DEBUG_DEFINE_MASK(netaddrq);
+UL_DEBUG_DEFINE_MASKNAMES(netaddrq) =
+{
+	{ "all", ULNETADDRQ_DEBUG_ALL,		"complete adddress processing" },
+	{ "help", ULNETADDRQ_DEBUG_HELP,	"this help" },
+	{ "addrq", ULNETADDRQ_DEBUG_ADDRQ,	"address rating" },
+	{ "list", ULNETADDRQ_DEBUG_LIST,	"list processing" },
+
+	{ NULL, 0 }
+};
 
 #define DBG(m, x)       __UL_DBG(netaddrq, ULNETADDRQ_DEBUG_, m, x)
 #define ON_DBG(m, x)    __UL_DBG_CALL(netaddrq, ULNETADDRQ_DEBUG_, m, x)
@@ -51,12 +54,17 @@ static void netaddrq_init_debug(void)
 {
 	if (netaddrq_debug_mask)
 		return;
+
 	__UL_INIT_DEBUG_FROM_ENV(netaddrq, ULNETADDRQ_DEBUG_, 0,
 				 ULNETADDRQ_DEBUG);
+
+	ON_DBG(HELP, ul_debug_print_masks("ULNETADDRQ_DEBUG",
+				UL_DEBUG_MASKNAMES(netaddrq)));
 }
 
 static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *addr) {
 	enum ul_netaddrq_ip_rating quality;
+
 	switch (addr->ifa_scope) {
 	case RT_SCOPE_UNIVERSE:
 		quality = IP_QUALITY_SCOPE_UNIVERSE;
@@ -78,34 +86,37 @@ static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *
 	return quality;
 }
 
-static int callback_addr(struct ul_nl_data *nl __attribute__((__unused__))) {
-	return 0;
-}
-
 /* Netlink callback evaluating the address quality and building the list of
  * interface lists */
 static int callback_addrq(struct ul_nl_data *nl) {
 	struct ul_netaddrq_data *addrq = UL_NETADDRQ_DATA(nl);
 	struct list_head *li, *ipq_list;
-	bool *ifaces_change;
 	struct ul_netaddrq_iface *ifaceq = NULL;
 	struct ul_netaddrq_ip *ipq = NULL;
+	int rc;
+	bool *ifaces_change;
 
-	// FIXME: can fail
-	callback_addr(nl);
+	DBG(LIST, ul_debugobj(addrq, "callback_addrq() for %s on %s",
+			      ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS),
+			      nl->addr.ifname));
+	if (addrq->callback_pre)
+	{
+		DBG(LIST, ul_debugobj(addrq, "callback_pre"));
+		if ((rc = (*(addrq->callback_pre))(nl)))
+			DBG(LIST, ul_debugobj(nl, "callback_pre rc != 0"));
+	}
 
 	/* Search for interface in ifaces */
 	addrq->nifaces = 0;
 
-			debug_net(". callback_addrq()\n");
-			printf("  nl->addr.ifa_index %d\n", nl->addr.ifa_index);
 	list_for_each(li, &(addrq->ifaces)) {
 		struct ul_netaddrq_iface *ifaceqq;
 		ifaceqq = list_entry(li, struct ul_netaddrq_iface, entry);
-			printf("  ifaceqq->ifa_index %d\n", ifaceqq->ifa_index);
 		if (ifaceqq->ifa_index == nl->addr.ifa_index) {
 			ifaceq = ifaceqq;
-			debug_net("+ interface found in the list\n");
+			DBG(LIST, ul_debugobj(ifaceq,
+					      "%s found in addrq",
+					      nl->addr.ifname));
 			break;
 		}
 		addrq->nifaces++;
@@ -114,24 +125,36 @@ static int callback_addrq(struct ul_nl_data *nl) {
 	if (ifaceq == NULL) {
 		if (nl->rtm_event) {
 			if (addrq->nifaces >= max_ifaces) {
-				debug_net("+ too many interfaces\n");
+				DBG(LIST, ul_debugobj(addrq,
+						       "too many interfaces"));
 				addrq->overflow = true;
 				return UL_NL_IFACES_MAX;
 			}
-			debug_net("+ allocating new interface\n");
-			/* FIXME: can fail */
-			ifaceq = malloc(sizeof(struct ul_netaddrq_iface));
+			DBG(LIST, ul_debugobj(addrq,
+					       "new ifa_index in addrq"));
+			if (!(ifaceq = malloc(sizeof(struct ul_netaddrq_iface))))
+			{
+				DBG(LIST, ul_debugobj(addrq,
+						       "malloc() 1 failed"));
+				return -1;
+			}
 			INIT_LIST_HEAD(&(ifaceq->ip_quality_list_4));
 			INIT_LIST_HEAD(&(ifaceq->ip_quality_list_6));
 			ifaceq->ifa_index = nl->addr.ifa_index;
-			printf("  index %d\n", ifaceq->ifa_index);
-			/* FIXME: can fail */
-			ifaceq->ifname = strdup(nl->addr.ifname);
-			debug_net("+ allocating new interface\n");
+			if (!(ifaceq->ifname = strdup(nl->addr.ifname)))
+			{
+				DBG(LIST, ul_debugobj(addrq,
+						       "malloc() 2 failed"));
+				free(ifaceq);
+				return -1;
+			}
 			list_add_tail(&(ifaceq->entry), &(addrq->ifaces));
+			DBG(LIST, ul_debugobj(ifaceq,
+					       "new interface"));
 		} else {
-			/* Should never happen, should be soft error? FIXME */
-			debug_net("- interface not found\n");
+			/* Should never happen. */
+			DBG(LIST, ul_debugobj(ifaceq,
+					       "interface not found"));
 			return UL_NL_SOFT_ERROR;
 		}
 	}
@@ -151,55 +174,83 @@ static int callback_addrq(struct ul_nl_data *nl) {
 				break;
 	}
 	if (ipq == NULL) {
-		debug_net("- address not found in the list\n");
+			DBG(LIST, ul_debugobj(ipq_list,
+					       "address not found in the list"));
 	}
 
-	if (nl->rtm_event) {
+	/* From now on, rc is return code */
+	rc = 0;
+	if (UL_NL_IS_RTM_NEW(nl)) {
 		struct ul_nl_addr *addr;
-#ifdef DEBUGGING
-		fprintf(dbf, "network: + new address (address_len = %d)\n", nl->addr.address_len); fflush(dbf);
-#endif
-		/* FIXME: can fail. What happens if it is NULL? */
+
 		addr = ul_nl_addr_dup(&(nl->addr));
+		if (!addr) {
+			DBG(LIST, ul_debugobj(addrq,
+					       "ul_nl_addr_dup() failed"));
+			rc = -1;
+			goto error;
+		}
 		if (ipq == NULL) {
-			debug_net("+ allocating new address\n");
-			ipq = malloc(sizeof(struct ul_netaddrq_ip));
+			if (!(ipq = malloc(sizeof(struct ul_netaddrq_ip))))
+			{
+				DBG(LIST, ul_debugobj(addrq,
+						       "malloc() 3 failed"));
+				rc = -1;
+				ul_nl_addr_free(addr);
+				goto error;
+			}
 			ipq->addr = addr;
 			list_add_tail(&(ipq->entry), ipq_list);
+			DBG(LIST, ul_debugobj(ipq, "new address"));
 			*ifaces_change = true;
 		} else {
-			debug_net("+ replacing address data\n");
+			DBG(LIST, ul_debugobj(addrq, "updating address data"));
 			ul_nl_addr_free(ipq->addr);
 			ipq->addr = addr;
 		}
 		ipq->quality = evaluate_ip_quality(addr);
-		fprintf(dbf, "  quality: %d\n", ipq->quality);
+		DBG(ADDRQ, ul_debugobj(addrq, "%s rating: %hhd",
+			      ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS),
+			      ipq->quality));
 	} else {
-		debug_net("address removed\n");
-		/* Should not happen FIXME soft error?*/
+		/* UL_NL_RTM_DEL */
 		if (ipq == NULL)
+		{
+			/* Should not happen. */
+			DBG(LIST, ul_debugobj(nl,
+					      "UL_NL_RTM_DEL: unknown address"));
 			return UL_NL_SOFT_ERROR;
+		}
 		/* Delist the address */
-		debug_net("- deleting address\n");
+		DBG(LIST, ul_debugobj(ipq, "removing address"));
 		*ifaces_change = true;
 		list_del(&(ipq->entry));
 		ul_nl_addr_free(ipq->addr);
 		free(ipq);
-		if (list_empty(&(ifaceq->ip_quality_list_4)) && list_empty(&(ifaceq->ip_quality_list_6))) {
-			debug_net("- deleted last IP in the interface, removing interface\n");
+	error:
+		if (list_empty(&(ifaceq->ip_quality_list_4)) &&
+		    list_empty(&(ifaceq->ip_quality_list_6))) {
+		DBG(LIST,
+		    ul_debugobj(ifaceq,
+				"deleted last address, removing interface"));
 			list_del(&(ifaceq->entry));
 			addrq->nifaces--;
 			free(ifaceq->ifname);
 			free(ifaceq);
 		}
 	}
-	if (addrq->callback)
-		return (*(addrq->callback))(nl);
-	return 0;
+	if (!rc && addrq->callback_post)
+	{
+		DBG(LIST, ul_debugobj(addrq, "callback_post"));
+		if ((rc = (*(addrq->callback_post))(nl)))
+			DBG(LIST, ul_debugobj(nl, "callback_post rc != 0"));
+	}
+	return rc;
 }
 
 /* Initialize ul_nl_data for use with netlink-addr-quality */
-int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
+int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback_pre,
+		     ul_nl_callback callback_post, void *data)
 {
 	struct ul_netaddrq_data *addrq;
 
@@ -208,12 +259,13 @@ int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
 		return -1;
 	nl->callback_addr = callback_addrq;
 	addrq = UL_NETADDRQ_DATA(nl);
-	addrq->callback = callback;
+	addrq->callback_pre = callback_pre;
+	addrq->callback_post = callback_post;
 	addrq->callback_data = data;
 	addrq->nifaces = 0;
 	addrq->overflow = false;
 	INIT_LIST_HEAD(&(addrq->ifaces));
-	DBG(ADDR, ul_debugobj(addrq, "callback initialized"));
+	DBG(LIST, ul_debugobj(addrq, "callback initialized"));
 	return 0;
 }
 
@@ -221,9 +273,10 @@ int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback, void *data)
  * ipq_list: List of IP addresses pf a particular interface and family
  * returns:
  *   best_valid: best ifa_valid validity time seen for the best quality
- *   best_valid_universe: best ifa_valid validity for IP_QUALITY_SCOPE_UNIVERSE quality
+ *   best_valid_universe: best ifa_valid validity for IP_QUALITY_SCOPE_UNIVERSE
+       quality
  *   return value: best quality seen */
-static enum ul_netaddrq_ip_rating get_quality_limit(struct list_head *ipq_list, uint32_t *best_valid, uint32_t *best_valid_universe) {
+static enum ul_netaddrq_ip_rating get_quality_threshold(struct list_head *ipq_list, uint32_t *best_valid, uint32_t *best_valid_universe) {
 	struct list_head *li;
 	struct ul_netaddrq_ip *ipq = NULL;
 	uint32_t **best_valid_cur;
@@ -263,7 +316,8 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 	enum ul_netaddrq_ip_rating qlimit;
 	uint32_t best_valid, best_valid_universe;
 
-	qlimit = get_quality_limit(ipq_list, &best_valid, &best_valid_universe);
+	qlimit = get_quality_threshold(ipq_list, &best_valid,
+				       &best_valid_universe);
 #ifdef DEBUGGING
 	fprintf(out, " (quality limit %d)", qlimit); fflush(out);
 #endif
@@ -319,10 +373,9 @@ int main(int argc __attribute__((__unused__)), char *argv[] __attribute__((__unu
 	int ulrc; /* FIXME: ulrc x rc */
 	struct ul_nl_data nl;
 	FILE *out = stdout;
-	dbf = stdout;
 	/* Prepare netlink. */
 	ul_nl_init(&nl);
-	if ((ul_netaddrq_init(&nl, ul_netaddrq_dump, (void *)out)))
+	if ((ul_netaddrq_init(&nl, NULL, ul_netaddrq_dump, (void *)out)))
 		// FIXME: real rc
 		return -1;
 
