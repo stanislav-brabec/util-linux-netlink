@@ -21,13 +21,29 @@
 
 /* Network address "quality". Higher means worse. */
 enum ul_netaddrq_ip_rating {
-	IP_QUALITY_SCOPE_UNIVERSE,
-	IP_QUALITY_SCOPE_SITE,
-	IP_QUALITY_IFA_LOCAL, /* FIXME: is it needed? */
-	IP_QUALITY_F_TEMPORARY,
-	IP_QUALITY_SCOPE_LINK,
-	IP_QUALITY_BAD
+	ULNETLINK_RATING_SCOPE_UNIVERSE,
+	ULNETLINK_RATING_SCOPE_SITE,
+	ULNETLINK_RATING_IFA_LOCAL, /* FIXME: is it needed? */
+	ULNETLINK_RATING_F_TEMPORARY,
+	ULNETLINK_RATING_SCOPE_LINK,
+	ULNETLINK_RATING_BAD
 };
+
+enum ulnetlink_print_count {
+	ULNETLINK_COUNT_BESTOFALL,
+	ULNETLINK_COUNT_BEST,
+	ULNETLINK_COUNT_GOOD,
+	ULNETLINK_COUNT_ALL
+};
+	
+enum ulnetlink_print_threshold {
+	ULNETLINK_THRESH_GLOBAL,
+	ULNETLINK_THRESH_SITE,
+	ULNETLINK_THRESH_TEMP,
+	ULNETLINK_THRESH_LINK,
+	ULNETLINK_THRESH_ANY
+};
+	
 
 /* Data structure in ul_nl_data You can use callback_pre for filtering events
  * you want to get into the list, callback_post to check the processed data or

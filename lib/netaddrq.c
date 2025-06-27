@@ -67,21 +67,21 @@ static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *
 
 	switch (addr->ifa_scope) {
 	case RT_SCOPE_UNIVERSE:
-		quality = IP_QUALITY_SCOPE_UNIVERSE;
+		quality = ULNETLINK_RATING_SCOPE_UNIVERSE;
 		break;
 	case RT_SCOPE_LINK:
-		quality = IP_QUALITY_SCOPE_LINK;
+		quality = ULNETLINK_RATING_SCOPE_LINK;
 		break;
 	case RT_SCOPE_SITE:
-		quality = IP_QUALITY_SCOPE_SITE;
+		quality = ULNETLINK_RATING_SCOPE_SITE;
 		break;
 	default:
-		quality = IP_QUALITY_BAD;
+		quality = ULNETLINK_RATING_BAD;
 		break;
 	}
 	if (addr->ifa_flags & IFA_F_TEMPORARY) {
-		if (quality <= IP_QUALITY_F_TEMPORARY)
-			quality = IP_QUALITY_F_TEMPORARY;
+		if (quality <= ULNETLINK_RATING_F_TEMPORARY)
+			quality = ULNETLINK_RATING_F_TEMPORARY;
 	}
 	return quality;
 }
@@ -273,7 +273,7 @@ int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback_pre,
  * ipq_list: List of IP addresses pf a particular interface and family
  * returns:
  *   best_valid: best ifa_valid validity time seen for the best quality
- *   best_valid_universe: best ifa_valid validity for IP_QUALITY_SCOPE_UNIVERSE
+ *   best_valid_universe: best ifa_valid validity for ULNETLINK_RATING_SCOPE_UNIVERSE
        quality
  *   return value: best quality seen */
 static enum ul_netaddrq_ip_rating get_quality_threshold(struct list_head *ipq_list, uint32_t *best_valid, uint32_t *best_valid_universe) {
@@ -282,7 +282,7 @@ static enum ul_netaddrq_ip_rating get_quality_threshold(struct list_head *ipq_li
 	uint32_t **best_valid_cur;
 	enum ul_netaddrq_ip_rating qlimit, qcur;
 
-	qlimit = IP_QUALITY_BAD;
+	qlimit = ULNETLINK_RATING_BAD;
 	*best_valid = 0;
 	*best_valid_universe = 0;
 	list_for_each(li, ipq_list) {
@@ -291,8 +291,8 @@ static enum ul_netaddrq_ip_rating get_quality_threshold(struct list_head *ipq_li
 		/* We do not discriminate between site and global
 		 * addresses. Consider them as equally good and report
 		 * both. */
-		if (qcur == IP_QUALITY_SCOPE_UNIVERSE) {
-			qcur = IP_QUALITY_SCOPE_SITE;
+		if (qcur == ULNETLINK_RATING_SCOPE_UNIVERSE) {
+			qcur = ULNETLINK_RATING_SCOPE_SITE;
 			best_valid_cur = &best_valid_universe;
 		} else
 			best_valid_cur = &best_valid;
@@ -318,14 +318,12 @@ static void print_good_addresses(struct list_head *ipq_list, FILE *out)
 
 	qlimit = get_quality_threshold(ipq_list, &best_valid,
 				       &best_valid_universe);
-#ifdef DEBUGGING
-	fprintf(out, " (quality limit %d)", qlimit); fflush(out);
-#endif
+	DBG(ADDRQ, ul_debugobj(ipq_list, "print threshold %d", qlimit));
 	list_for_each(li, ipq_list) {
 		ipq = list_entry(li, struct ul_netaddrq_ip, entry);
 
 		if (ipq->quality <= qlimit &&
-		    (ipq->quality == IP_QUALITY_SCOPE_UNIVERSE ?
+		    (ipq->quality == ULNETLINK_RATING_SCOPE_UNIVERSE ?
 		     (best_valid_universe == 0 || ipq->addr->ifa_valid == best_valid_universe) :
 		     (best_valid == 0 || ipq->addr->ifa_valid == best_valid)))
 			fprintf(out, " %s", ul_nl_addr_ntop(ipq->addr, UL_NL_ADDR_ADDRESS));
