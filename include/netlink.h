@@ -70,7 +70,7 @@ struct ul_nl_addr {
 	char *ifname;		/* interface from ifa_index as string */
 	void *address;		/* IFA_LOCAL, if defined, otherwise
 				 * IFA_ADDRESS. This is what you want it most
-				 * cases */
+				 * cases. See comment in linux/if_addr.h. */
 	int address_len;	/* size of address data */
 	uint32_t ifa_prefered;	/* ifa_prefered from IFA_CACHEINFO */
 	uint32_t ifa_valid;	/* ifa_valid from IFA_CACHEINFO */

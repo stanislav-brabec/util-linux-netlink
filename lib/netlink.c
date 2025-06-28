@@ -33,10 +33,10 @@
 static UL_DEBUG_DEFINE_MASK(netlink);
 UL_DEBUG_DEFINE_MASKNAMES(netlink) =
 {
-	{ "all", ULNETLINK_DEBUG_ALL,		"complete netlink debugging" },
-	{ "help", ULNETLINK_DEBUG_HELP,		"this help" },
+	{ "all",   ULNETLINK_DEBUG_ALL,		"complete netlink debugging" },
+	{ "help",  ULNETLINK_DEBUG_HELP,	"this help" },
 	{ "nlmsg", ULNETLINK_DEBUG_NLMSG,	"netlink message debugging" },
-	{ "addr", ULNETLINK_DEBUG_ADDR,		"netlink address processing" },
+	{ "addr",  ULNETLINK_DEBUG_ADDR,	"netlink address processing" },
 
 	{ NULL, 0 }
 };
@@ -136,6 +136,8 @@ static int process_addr(struct ul_nl_data *nl, struct nlmsghdr *nh)
 		nl->addr.ifname = _("unknown");
 	}
 	nl->addr.ifa_flags = (uint32_t)(ifaddr->ifa_flags);
+	/* If IFA_CACHEINFO is not present, suppose permanent addresses. */
+	nl->addr.ifa_valid = UINT32_MAX;
 	ON_DBG(ADDR, dbg_addr(nl));
 
 	/* Process rtattr. */
@@ -410,7 +412,7 @@ static int callback_addr(struct ul_nl_data *nl) {
 	default:		str = "other"; break;
 	}
 	printf("  scope: %s\n", str);
-	if (nl->addr.ifa_valid != (uint32_t)-1)
+	if (nl->addr.ifa_valid != UINT32_MAX)
 		printf("  valid: %u\n", nl->addr.ifa_valid);
 	else
 		printf("  valid: forever\n");

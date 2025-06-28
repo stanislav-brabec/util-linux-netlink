@@ -30,16 +30,18 @@ const int max_ifaces = 12;
 #define ULNETADDRQ_DEBUG_INIT	(1 << 1)
 #define ULNETADDRQ_DEBUG_ADDRQ	(1 << 2)
 #define ULNETADDRQ_DEBUG_LIST	(1 << 3)
+#define ULNETADDRQ_DEBUG_BEST	(1 << 4)
 
-#define ULNETADDRQ_DEBUG_ALL	0x0F
+#define ULNETADDRQ_DEBUG_ALL	0x1F
 
 static UL_DEBUG_DEFINE_MASK(netaddrq);
 UL_DEBUG_DEFINE_MASKNAMES(netaddrq) =
 {
-	{ "all", ULNETADDRQ_DEBUG_ALL,		"complete adddress processing" },
-	{ "help", ULNETADDRQ_DEBUG_HELP,	"this help" },
+	{ "all",   ULNETADDRQ_DEBUG_ALL,	"complete adddress processing" },
+	{ "help",  ULNETADDRQ_DEBUG_HELP,	"this help" },
 	{ "addrq", ULNETADDRQ_DEBUG_ADDRQ,	"address rating" },
-	{ "list", ULNETADDRQ_DEBUG_LIST,	"list processing" },
+	{ "list",  ULNETADDRQ_DEBUG_LIST,	"list processing" },
+	{ "best",  ULNETADDRQ_DEBUG_BEST,	"searching best address" },
 
 	{ NULL, 0 }
 };
@@ -84,6 +86,23 @@ static inline enum ul_netaddrq_ip_rating evaluate_ip_quality(struct ul_nl_addr *
 			quality = ULNETLINK_RATING_F_TEMPORARY;
 	}
 	return quality;
+}
+
+#define DBG_CASE(x) case x: str = #x; break
+#define DBG_CASE_DEF8(x) default: snprintf(strx+2, 3, "%02hhx", x); str = strx; break
+static char *ip_rating(enum ul_netaddrq_ip_rating q)
+{
+	char *str;
+	char strx[5] = "0x";
+	switch (q) {
+		DBG_CASE(ULNETLINK_RATING_SCOPE_UNIVERSE);
+		DBG_CASE(ULNETLINK_RATING_SCOPE_SITE);
+		DBG_CASE(ULNETLINK_RATING_F_TEMPORARY);
+		DBG_CASE(ULNETLINK_RATING_SCOPE_LINK);
+		DBG_CASE(ULNETLINK_RATING_BAD);
+		DBG_CASE_DEF8(q);
+	}
+	return str;
 }
 
 /* Netlink callback evaluating the address quality and building the list of
@@ -209,9 +228,10 @@ static int callback_addrq(struct ul_nl_data *nl) {
 			ipq->addr = addr;
 		}
 		ipq->quality = evaluate_ip_quality(addr);
-		DBG(ADDRQ, ul_debugobj(addrq, "%s rating: %hhd",
-			      ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS),
-			      ipq->quality));
+		DBG(ADDRQ,
+		    ul_debugobj(addrq, "%s rating: %s",
+				ul_nl_addr_ntop(&(nl->addr), UL_NL_ADDR_ADDRESS),
+				ip_rating(ipq->quality)));
 	} else {
 		/* UL_NL_RTM_DEL */
 		if (ipq == NULL)
@@ -269,64 +289,101 @@ int ul_netaddrq_init(struct ul_nl_data *nl, ul_nl_callback callback_pre,
 	return 0;
 }
 
-/* Get best quality value from in the ul_netaddrq_ip list
- * ipq_list: List of IP addresses pf a particular interface and family
+/* Get best rating value from in the ul_netaddrq_ip list
+ * ipq_list: List of IP addresses of a particular interface and family
  * returns:
- *   best_valid: best ifa_valid validity time seen for the best quality
- *   best_valid_universe: best ifa_valid validity for ULNETLINK_RATING_SCOPE_UNIVERSE
-       quality
- *   return value: best quality seen */
-static enum ul_netaddrq_ip_rating get_quality_threshold(struct list_head *ipq_list, uint32_t *best_valid, uint32_t *best_valid_universe) {
-	struct list_head *li;
-	struct ul_netaddrq_ip *ipq = NULL;
-	uint32_t **best_valid_cur;
-	enum ul_netaddrq_ip_rating qlimit, qcur;
-
-	qlimit = ULNETLINK_RATING_BAD;
-	*best_valid = 0;
-	*best_valid_universe = 0;
-	list_for_each(li, ipq_list) {
-		ipq = list_entry(li, struct ul_netaddrq_ip, entry);
-		qcur = ipq->quality;
-		/* We do not discriminate between site and global
-		 * addresses. Consider them as equally good and report
-		 * both. */
-		if (qcur == ULNETLINK_RATING_SCOPE_UNIVERSE) {
-			qcur = ULNETLINK_RATING_SCOPE_SITE;
-			best_valid_cur = &best_valid_universe;
-		} else
-			best_valid_cur = &best_valid;
-		if (qlimit > qcur) {
-			qlimit = qcur;
-			**best_valid_cur = ipq->addr->ifa_valid;
-		} else {
-			if (ipq->addr->ifa_valid > 0) {
-				if (ipq->addr->ifa_valid > **best_valid_cur)
-					**best_valid_cur = ipq->addr->ifa_valid;
-			}
-		}
-	}
-	return qlimit;
-}
-
-static void print_good_addresses(struct list_head *ipq_list, FILE *out)
+ *   best_valid array: best ifa_valid validity time seen per quality rating
+ *   return value: best rating seen */
+static enum ul_netaddrq_ip_rating
+get_quality_threshold(struct list_head *ipq_list,
+		     struct ul_netaddrq_ip *best[__ULNETLINK_RATING_MAX])
 {
 	struct list_head *li;
 	struct ul_netaddrq_ip *ipq;
-	enum ul_netaddrq_ip_rating qlimit;
-	uint32_t best_valid, best_valid_universe;
+	enum ul_netaddrq_ip_rating threshold;
 
-	qlimit = get_quality_threshold(ipq_list, &best_valid,
-				       &best_valid_universe);
-	DBG(ADDRQ, ul_debugobj(ipq_list, "print threshold %d", qlimit));
-	list_for_each(li, ipq_list) {
+	threshold = ULNETLINK_RATING_BAD;
+	list_for_each(li, ipq_list)
+	{
 		ipq = list_entry(li, struct ul_netaddrq_ip, entry);
 
-		if (ipq->quality <= qlimit &&
+		if (!best[ipq->quality] ||
+		    ipq->addr->ifa_valid >
+		    best[ipq->quality]->addr->ifa_valid)
+		{
+			DBG(BEST,
+			    ul_debugobj(best, "%s -> best[%s]",
+					ul_nl_addr_ntop(ipq->addr,
+							UL_NL_ADDR_ADDRESS),
+					ip_rating(ipq->quality)));
+			best[ipq->quality] = ipq;
+		}
+
+		if (ipq->quality < threshold)
+		{
+			threshold = ipq->quality;
+			DBG(BEST,
+			    ul_debug("threshold %s", ip_rating(threshold)));
+
+		}
+	}
+	return threshold;
+}
+
+static void ul_netaddrq_printaddr(FILE *out, struct list_head *ipq_list,
+				  enum ulnetlink_print_threshold q,
+				  enum ulnetlink_print_count c, const char *sep)
+{
+	struct list_head *li;
+	struct ul_netaddrq_ip *ipq;
+	enum ul_netaddrq_ip_rating threshold;
+	struct ul_netaddrq_ip *best[__ULNETLINK_RATING_MAX];
+	bool first = true;
+
+	memset(best, 0, sizeof(best));
+	threshold = get_quality_threshold(ipq_list, best);
+	DBG(BEST, ul_debugobj(ipq_list, "final threshold %hhd", threshold));
+
+	switch(c)
+	{
+	case ULNETLINK_COUNT_BESTOFALL:
+	case ULNETLINK_COUNT_BEST:
+		if (best[threshold])
+			fputs(ul_nl_addr_ntop(best[threshold]->addr,
+					      UL_NL_ADDR_ADDRESS), out);
+		break;
+	case ULNETLINK_COUNT_GOOD:
+		if (threshold < ULNETLINK_RATING_SCOPE_SITE)
+			threshold = ULNETLINK_RATING_SCOPE_SITE;
+		list_for_each(li, ipq_list)
+		{
+			ipq = list_entry(li, struct ul_netaddrq_ip, entry);
+			
+			if (ipq->quality > threshold)
+				continue;
+			if (ipq->addr->ifa_flags & IFA_F_TEMPORARY)
+				if (ipq->addr->ifa_valid <
+				    best[threshold]->addr->ifa_valid)
+					continue;
+			if (!first)
+				fputs(sep, out);
+			first = false;
+			fputs(ul_nl_addr_ntop(ipq->addr,
+					      UL_NL_ADDR_ADDRESS), out);
+			break;
+			case ULNETLINK_COUNT_ALL:
+		}
+/*
+		list_for_each(li, ipq_list) {
+		ipq = list_entry(li, struct ul_netaddrq_ip, entry);
+
+		if (ipq->quality <= threshold &&
 		    (ipq->quality == ULNETLINK_RATING_SCOPE_UNIVERSE ?
 		     (best_valid_universe == 0 || ipq->addr->ifa_valid == best_valid_universe) :
 		     (best_valid == 0 || ipq->addr->ifa_valid == best_valid)))
 			fprintf(out, " %s", ul_nl_addr_ntop(ipq->addr, UL_NL_ADDR_ADDRESS));
+			}
+*/
 	}
 }
 
@@ -347,12 +404,12 @@ static int ul_netaddrq_dump(struct ul_nl_data *nl) {
 
 		/* IPv4 */
 		fprintf(out, "  IPv4"); fflush(out);
-		print_good_addresses(&(ifaceq->ip_quality_list_4), out);
+		ul_netaddrq_printaddr(out, &(ifaceq->ip_quality_list_4), ULNETLINK_THRESH_SITE, ULNETLINK_COUNT_BEST, ", ");
 		fprintf(out, "\n");
 
 		/* IPv6 */
 		fprintf(out, "  IPv6"); fflush(out);
-		print_good_addresses(&(ifaceq->ip_quality_list_6), out);
+		ul_netaddrq_printaddr(out, &(ifaceq->ip_quality_list_6), ULNETLINK_THRESH_SITE, ULNETLINK_COUNT_BEST, ", ");
 		fprintf(out, "\n");
 	}
 	return 0;
